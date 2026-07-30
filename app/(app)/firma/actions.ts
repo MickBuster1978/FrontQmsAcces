@@ -48,7 +48,7 @@ export async function gemFirmaProfil(formData: FormData) {
       autorisationsnr: felt("autorisationsnr"),
       adresse: felt("adresse"),
       postnr: felt("postnr"),
-      by: felt("by"),
+      bynavn: felt("bynavn"),
       telefon: felt("telefon"),
       email: felt("email"),
       kontaktperson: felt("kontaktperson"),
