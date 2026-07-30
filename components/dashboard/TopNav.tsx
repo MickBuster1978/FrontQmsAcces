@@ -2,36 +2,49 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 type NavLink = {
   href: string;
   label: string;
-  /** Antal ting der kræver handling – vises som orange tal */
-  badge?: number;
 };
 
 const LINKS: NavLink[] = [
   { href: "/dashboard", label: "Overblik" },
   { href: "/firma", label: "Firma" },
   { href: "/flow", label: "Flowdiagram" },
-  { href: "/risiko", label: "Risikoanalyse", badge: 4 },
-  { href: "/dokumenter", label: "Dokumenter", badge: 2 },
-  { href: "/verifikation", label: "Verifikationer", badge: 1 },
+  { href: "/risiko", label: "Risikoanalyse" },
+  { href: "/dokumenter", label: "Dokumenter" },
+  { href: "/verifikation", label: "Verifikationer" },
 ];
 
 export type TopNavProps = {
   orgName: string;
   userName: string;
-  /** Fx "Kvalitetsansvarlig" – styrer hvad brugeren må se */
   userRole: string;
 };
 
 export default function TopNav({ orgName, userName, userRole }: TopNavProps) {
   const pathname = usePathname();
+  const router = useRouter();
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  }
+
+  const initials = userName
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
     <header className="sticky top-0 z-40 border-b border-raw-edge bg-raw/95 backdrop-blur">
@@ -45,7 +58,7 @@ export default function TopNav({ orgName, userName, userRole }: TopNavProps) {
           <span className="label leading-none">{orgName}</span>
         </Link>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="hidden text-right leading-tight sm:block">
             <p className="text-[14px]">{userName}</p>
             <p className="label">{userRole}</p>
@@ -57,12 +70,15 @@ export default function TopNav({ orgName, userName, userRole }: TopNavProps) {
                        transition-colors hover:border-brand"
             aria-label="Konto og indstillinger"
           >
-            {userName
-              .split(" ")
-              .map((n) => n[0])
-              .slice(0, 2)
-              .join("")}
+            {initials}
           </Link>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="btn-quiet px-3 py-1.5 text-[13px]"
+          >
+            Log ud
+          </button>
         </div>
       </div>
 
@@ -84,14 +100,6 @@ export default function TopNav({ orgName, userName, userRole }: TopNavProps) {
                               }`}
                 >
                   {link.label}
-                  {link.badge ? (
-                    <span
-                      className="tabular inline-flex min-w-[18px] justify-center
-                                 rounded-sm bg-brand-soft px-1 text-[12px] text-brand"
-                    >
-                      {link.badge}
-                    </span>
-                  ) : null}
                 </Link>
               </li>
             );
