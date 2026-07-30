@@ -1,0 +1,70 @@
+/* app/globals.css */
+
+/* Font-kilde – skift KUN denne linje hvis Libertinus skal hentes et andet sted */
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/libertinus-serif@5.0.0/index.css");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --raw: #faf6ee;
+  --ink: #14120f;
+  --brand: #c9600f;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--raw);
+    color: var(--ink);
+    font-family: "Libertinus Serif", "Linux Libertine O", Georgia,
+      "Times New Roman", serif;
+    font-size: 17px;
+    line-height: 1.55;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  /* Tal i tabeller og statusfelter skal flugte lodret */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Mikro-label: versaler, spatieret. Bruges over alle sektioner. */
+  .label {
+    @apply text-[11px] uppercase tracking-label text-ink-faint;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-sm
+           bg-brand px-4 py-2 text-[15px] text-raw
+           transition-colors hover:bg-brand-hover
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-brand
+           focus-visible:ring-offset-2 focus-visible:ring-offset-raw;
+  }
+
+  .btn-quiet {
+    @apply inline-flex items-center justify-center gap-2 rounded-sm
+           border border-raw-edge bg-transparent px-4 py-2 text-[15px]
+           text-ink transition-colors hover:bg-raw-deep;
+  }
+
+  /* Redaktionel dobbeltlinje */
+  .rule-double {
+    @apply border-b border-ink/15;
+    box-shadow: 0 3px 0 -2px rgba(20, 18, 15, 0.15);
+  }
+}
