@@ -7,7 +7,7 @@ import {
   type FlowDiagram,
   type ProcessStep,
 } from "@/lib/flow/types";
-import { deleteDiagram } from "../actions";
+import { deleteDiagram, deleteStep } from "../actions";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("da-DK", {
@@ -56,9 +56,14 @@ export default async function DiagramPage({
               {d.name}
             </h1>
           </div>
-          <p className="text-[14px] text-ink-faint">
-            Oprettet {formatDate(d.created_at)}
-          </p>
+          <div className="flex items-center gap-4">
+            <p className="text-[14px] text-ink-faint">
+              Oprettet {formatDate(d.created_at)}
+            </p>
+            <Link href={`/flow/${d.id}/nyt-trin`} className="btn">
+              Tilføj trin
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -72,10 +77,16 @@ export default async function DiagramPage({
           <div className="mt-6 border border-dashed border-raw-edge bg-raw-deep p-8 text-center">
             <p className="text-[17px]">Ingen trin endnu.</p>
             <p className="mx-auto mt-2 max-w-md text-[14px] text-ink-faint">
-              Builderen kommer i næste trin af udviklingen: her vælger du
-              guidet opbygning, skabelon eller frit canvas, og hvert trin
-              gemmes som data med sine attributter.
+              Tilføj det første trin – typisk modtagelsen. Hvert trin gemmes
+              som data med sine attributter, og risikoanalysen bygger direkte
+              på dem.
             </p>
+            <Link
+              href={`/flow/${d.id}/nyt-trin`}
+              className="btn mt-5 inline-flex"
+            >
+              Tilføj første trin
+            </Link>
           </div>
         ) : (
           <div className="mt-6 overflow-x-auto">
@@ -88,7 +99,8 @@ export default async function DiagramPage({
                   <th className="label py-2 pr-4 font-normal">Zone</th>
                   <th className="label py-2 pr-4 font-normal">Temp.</th>
                   <th className="label py-2 pr-4 font-normal">Åbent</th>
-                  <th className="label py-2 font-normal">Kontakt</th>
+                  <th className="label py-2 pr-4 font-normal">Kontakt</th>
+                  <th className="py-2 font-normal"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink/10">
@@ -114,8 +126,24 @@ export default async function DiagramPage({
                     <td className="py-2.5 pr-4">
                       {s.product_open ? "Ja" : "Nej"}
                     </td>
-                    <td className="py-2.5">
+                    <td className="py-2.5 pr-4">
                       {s.person_contact ? "Ja" : "Nej"}
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <form action={deleteStep} className="inline">
+                        <input type="hidden" name="step_id" value={s.id} />
+                        <input
+                          type="hidden"
+                          name="diagram_id"
+                          value={d.id}
+                        />
+                        <button
+                          type="submit"
+                          className="text-[13px] text-ink-faint underline hover:text-state-bad"
+                        >
+                          Slet
+                        </button>
+                      </form>
                     </td>
                   </tr>
                 ))}
@@ -125,7 +153,7 @@ export default async function DiagramPage({
         )}
       </section>
 
-      {/* Farezone: slet */}
+      {/* Farezone: slet diagram */}
       <section className="mt-14 border-t border-ink/10 pt-6">
         <form
           action={deleteDiagram}
