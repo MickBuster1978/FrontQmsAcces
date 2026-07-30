@@ -4,11 +4,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
- * Førstegangs-opsætning. Fejl sendes tilbage til /velkommen?fejl=...
- * hvor de VISES – ingen tavse afvisninger.
+ * Førstegangs-opsætning – kører HELT gennem RLS, ingen service role.
+ * Databasen håndhæver selv reglerne (migration 004):
+ * - kun brugere uden medlemskab kan oprette en organisation
+ * - man kan kun indmelde sig selv, kun som admin, kun første gang
  */
 export async function foersteOpsaetning(formData: FormData) {
   const supabase = createClient();
@@ -24,34 +25,22 @@ export async function foersteOpsaetning(formData: FormData) {
   if (orgName.length < 2) redirect("/velkommen?fejl=firma");
   if (fullName.length < 2) redirect("/velkommen?fejl=navn");
 
-  const admin = createAdminClient();
-
-  const { data: existing } = await admin
-    .from("memberships")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .maybeSingle();
-
-  if (existing) redirect("/dashboard");
-
-  const { data: nameTaken } = await admin
-    .from("organizations")
-    .select("id")
-    .eq("name", orgName)
-    .maybeSingle();
-
-  if (nameTaken) redirect("/velkommen?fejl=firma_findes");
-
-  const { data: org, error: orgError } = await admin
+  // 1. Organisation. Unikt navn håndhæves af databasen (23505),
+  //    førstegangs-retten af RLS (fejlkode 42501).
+  const { data: org, error: orgError } = await supabase
     .from("organizations")
     .insert({ name: orgName })
     .select("id")
     .single();
 
-  if (orgError || !org) redirect("/velkommen?fejl=ukendt");
+  if (orgError || !org) {
+    if (orgError?.code === "23505") redirect("/velkommen?fejl=firma_findes");
+    if (orgError?.code === "42501") redirect("/dashboard"); // har allerede medlemskab
+    redirect("/velkommen?fejl=ukendt");
+  }
 
-  const { error: memberError } = await admin.from("memberships").insert({
+  // 2. Medlemskab som admin
+  const { error: memberError } = await supabase.from("memberships").insert({
     org_id: org.id,
     user_id: user.id,
     role: "admin",
@@ -59,7 +48,9 @@ export async function foersteOpsaetning(formData: FormData) {
   });
 
   if (memberError) {
-    await admin.from("organizations").delete().eq("id", org.id);
+    // Ryd op så org'en ikke står forældreløs (insert-policy uden medlemskab
+    // tillader ikke sletning – men brugeren ejer den heller ikke endnu, så
+    // vi lader unikke navne + support håndtere det sjældne tilfælde)
     redirect("/velkommen?fejl=ukendt");
   }
 
