@@ -30,7 +30,7 @@ type OrgProfil = {
   autorisationsnr: string | null;
   adresse: string | null;
   postnr: string | null;
-  by: string | null;
+  bynavn: string | null;
   telefon: string | null;
   email: string | null;
   kontaktperson: string | null;
@@ -50,7 +50,7 @@ export default async function FirmaPage({
   const { data } = await supabase
     .from("organizations")
     .select(
-      "name, cvr, autorisationsnr, adresse, postnr, by, telefon, email, kontaktperson, aktiviteter, antal_ansatte, standard"
+      "name, cvr, autorisationsnr, adresse, postnr, bynavn, telefon, email, kontaktperson, aktiviteter, antal_ansatte, standard"
     )
     .eq("id", ctx?.orgId ?? "")
     .maybeSingle();
@@ -160,14 +160,14 @@ export default async function FirmaPage({
               />
             </div>
             <div>
-              <label htmlFor="by" className="label">
+              <label htmlFor="bynavn" className="label">
                 By
               </label>
               <input
-                id="by"
-                name="by"
+                id="bynavn"
+                name="bynavn"
                 type="text"
-                defaultValue={org?.by ?? ""}
+                defaultValue={org?.bynavn ?? ""}
                 disabled={!kanRedigere}
                 className={inputCls}
               />
