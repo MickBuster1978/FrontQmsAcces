@@ -2,6 +2,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -13,6 +14,8 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const justCreated = searchParams.get("oprettet") === "1";
 
   async function handleLogin() {
     setError(null);
@@ -41,6 +44,12 @@ function LoginForm() {
 
   return (
     <div className="mt-8 space-y-5">
+      {justCreated ? (
+        <p className="border border-state-ok/30 bg-state-ok/5 px-3 py-2 text-[14px] text-state-ok">
+          Virksomhed og konto oprettet. Log ind herunder.
+        </p>
+      ) : null}
+
       <div>
         <label htmlFor="email" className="label">
           E-mail
@@ -95,8 +104,10 @@ function LoginForm() {
       </button>
 
       <p className="text-center text-[14px] text-ink-faint">
-        Ingen konto? Kontakt jeres kvalitetsansvarlige – brugere oprettes af
-        virksomhedens administrator.
+        Ny virksomhed?{" "}
+        <Link href="/login/opret" className="text-brand underline">
+          Opret virksomhed og konto
+        </Link>
       </p>
     </div>
   );
