@@ -3,9 +3,9 @@ import TopNav from "@/components/dashboard/TopNav";
 
 /**
  * Layout for alle indloggede moduler.
+ * BEMÆRK: ingen <html> eller <body> her – de hører kun i app/layout.tsx.
  *
- * Org- og brugerdata er hårdkodet indtil auth er på plads – de skal komme
- * fra Supabase-sessionen og medlemskabstabellen, ikke fra props herinde.
+ * Org- og brugerdata er hårdkodet indtil auth er på plads.
  */
 export default function AppLayout({
   children,
@@ -24,7 +24,9 @@ export default function AppLayout({
 
       <footer className="border-t border-raw-edge">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-5">
-          <p className="label">AiQMS · kvalitetsstyring for fødevareproducenter</p>
+          <p className="label">
+            AiQMS · kvalitetsstyring for fødevareproducenter
+          </p>
           <p className="text-[13px] text-ink-faint">
             Standard: IFS Food 8 · sidste synkronisering i dag
           </p>
