@@ -74,11 +74,16 @@ export default async function AppLayout({
             <button type="submit" className="btn w-full">
               Gør systemet klar
             </button>
+          </form>
 
-            <p className="text-center text-[13px] text-ink-faint">
-              Du bliver virksomhedens administrator og kan senere give
-              kolleger adgang.
-            </p>
+          {/* Forkert konto? Vejen ud – ingen fælde */}
+          <form action="/auth/signout" method="post" className="mt-5 text-center">
+            <button
+              type="submit"
+              className="text-[13px] text-ink-faint underline hover:text-brand"
+            >
+              Forkert konto? Log ud
+            </button>
           </form>
         </div>
       </main>
