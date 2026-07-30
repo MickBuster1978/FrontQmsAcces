@@ -1,11 +1,11 @@
 // app/login/page.tsx
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -40,6 +40,70 @@ export default function LoginPage() {
   }
 
   return (
+    <div className="mt-8 space-y-5">
+      <div>
+        <label htmlFor="email" className="label">
+          E-mail
+        </label>
+        <input
+          id="email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="mt-1.5 w-full rounded-sm border border-raw-edge bg-raw-deep
+                     px-3 py-2 text-[16px] outline-none transition-colors
+                     focus:border-brand"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="password" className="label">
+          Adgangskode
+        </label>
+        <input
+          id="password"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !loading) handleLogin();
+          }}
+          className="mt-1.5 w-full rounded-sm border border-raw-edge bg-raw-deep
+                     px-3 py-2 text-[16px] outline-none transition-colors
+                     focus:border-brand"
+        />
+      </div>
+
+      {error ? (
+        <p
+          className="border border-state-bad/30 bg-state-bad/5 px-3 py-2
+                     text-[14px] text-state-bad"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={handleLogin}
+        disabled={loading || !email || !password}
+        className="btn w-full disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {loading ? "Logger ind …" : "Log ind"}
+      </button>
+
+      <p className="text-center text-[14px] text-ink-faint">
+        Ingen konto? Kontakt jeres kvalitetsansvarlige – brugere oprettes af
+        virksomhedens administrator.
+      </p>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
     <main className="flex min-h-screen items-center justify-center px-6">
       <div className="w-full max-w-sm">
         {/* Wordmark */}
@@ -48,63 +112,9 @@ export default function LoginPage() {
           <p className="label mt-1">Kvalitetsstyring for fødevareproducenter</p>
         </div>
 
-        <div className="mt-8 space-y-5">
-          <div>
-            <label htmlFor="email" className="label">
-              E-mail
-            </label>
-            <input
-              id="email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1.5 w-full rounded-sm border border-raw-edge bg-raw-deep
-                         px-3 py-2 text-[16px] outline-none transition-colors
-                         focus:border-brand"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="password" className="label">
-              Adgangskode
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !loading) handleLogin();
-              }}
-              className="mt-1.5 w-full rounded-sm border border-raw-edge bg-raw-deep
-                         px-3 py-2 text-[16px] outline-none transition-colors
-                         focus:border-brand"
-            />
-          </div>
-
-          {error ? (
-            <p className="border border-state-bad/30 bg-state-bad/5 px-3 py-2
-                          text-[14px] text-state-bad">
-              {error}
-            </p>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={handleLogin}
-            disabled={loading || !email || !password}
-            className="btn w-full disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "Logger ind …" : "Log ind"}
-          </button>
-
-          <p className="text-center text-[14px] text-ink-faint">
-            Ingen konto? Kontakt jeres kvalitetsansvarlige – brugere oprettes
-            af virksomhedens administrator.
-          </p>
-        </div>
+        <Suspense fallback={<div className="mt-8" />}>
+          <LoginForm />
+        </Suspense>
       </div>
     </main>
   );
