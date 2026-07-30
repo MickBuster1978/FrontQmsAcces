@@ -1,0 +1,133 @@
+// lib/flow/types.ts
+// Typer der spejler supabase/migrations/002_flow_model.sql 1:1.
+// Ændres schemaet, ændres denne fil i samme commit.
+
+export const STEP_TYPES = [
+  "modtagelse",
+  "koelelagring",
+  "frostlagring",
+  "optoening",
+  "opskaering",
+  "hakning",
+  "tilsaetning",
+  "vejning",
+  "pakning",
+  "maerkning",
+  "metaldetektion",
+  "frysning",
+  "forsendelse",
+  "transport",
+  "intern_flytning",
+] as const;
+
+export type StepType = (typeof STEP_TYPES)[number];
+
+export const STEP_TYPE_LABELS: Record<StepType, string> = {
+  modtagelse: "Modtagelse",
+  koelelagring: "Kølelagring",
+  frostlagring: "Frostlagring",
+  optoening: "Optøning",
+  opskaering: "Opskæring",
+  hakning: "Hakning",
+  tilsaetning: "Tilsætning",
+  vejning: "Vejning",
+  pakning: "Pakning",
+  maerkning: "Mærkning",
+  metaldetektion: "Metaldetektion",
+  frysning: "Frysning",
+  forsendelse: "Forsendelse",
+  transport: "Transport",
+  intern_flytning: "Intern flytning",
+};
+
+export type DiagramStatus = "kladde" | "aktiv" | "arkiveret";
+
+export type FlowDiagram = {
+  id: string;
+  org_id: string;
+  name: string;
+  status: DiagramStatus;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProcessStep = {
+  id: string;
+  diagram_id: string;
+  org_id: string;
+  step_no: number;
+  name: string;
+  step_type: StepType;
+  location_zone: string | null;
+  product_open: boolean;
+  person_contact: boolean;
+  temp_target_c: number | null;
+  temp_tolerance_c: number | null;
+  max_dwell_min: number | null;
+  equipment: string | null;
+  responsible_role: string | null;
+  input_desc: string | null;
+  output_desc: string | null;
+  pos_x: number;
+  pos_y: number;
+  created_at: string;
+};
+
+export type ProcessEdge = {
+  id: string;
+  diagram_id: string;
+  org_id: string;
+  from_step: string;
+  to_step: string;
+  label: string | null;
+};
+
+export type AttributeValueType = "text" | "number" | "boolean" | "select";
+
+export type AttributeDefinition = {
+  id: string;
+  label: string;
+  help_text: string | null;
+  value_type: AttributeValueType;
+  unit: string | null;
+  options: string[] | null;
+  applies_to: StepType[];
+  required: boolean;
+  standard_ref: string | null;
+  sort_order: number;
+};
+
+export type StepAttribute = {
+  step_id: string;
+  org_id: string;
+  attr_id: string;
+  value_text: string | null;
+  value_num: number | null;
+  value_bool: boolean | null;
+};
+
+/** Definitioner der gælder for en given trin-type, sorteret */
+export function definitionsForStepType(
+  defs: AttributeDefinition[],
+  stepType: StepType
+): AttributeDefinition[] {
+  return defs
+    .filter((d) => d.applies_to.includes(stepType))
+    .sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/** Læs værdien af en attribut uanset value_type */
+export function attributeValue(
+  attr: StepAttribute,
+  def: AttributeDefinition
+): string | number | boolean | null {
+  switch (def.value_type) {
+    case "number":
+      return attr.value_num;
+    case "boolean":
+      return attr.value_bool;
+    default:
+      return attr.value_text;
+  }
+}
