@@ -8,6 +8,8 @@ const FEJL_TEKST: Record<string, string> = {
   navn: "Skriv dit fulde navn (mindst 2 tegn).",
   firma_findes:
     "Der findes allerede en virksomhed med det navn i systemet. Vælg et andet navn – eller kontakt AiQMS hvis det er JERES virksomhed, så rydder vi op.",
+  rettighed:
+    "Databasen afviste oprettelsen. Det sker typisk hvis opsætnings-reglerne (migration 004) ikke er kørt endnu – kontakt AiQMS.",
   ukendt:
     "Noget gik galt på serveren. Prøv igen – fortsætter det, så kontakt AiQMS.",
 };
