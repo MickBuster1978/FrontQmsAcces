@@ -9,9 +9,8 @@ const FEJL_TEKST: Record<string, string> = {
   firma_findes:
     "Der findes allerede en virksomhed med det navn i systemet. Vælg et andet navn – eller kontakt AiQMS hvis det er JERES virksomhed, så rydder vi op.",
   rettighed:
-    "Databasen afviste oprettelsen. Det sker typisk hvis opsætnings-reglerne (migration 004) ikke er kørt endnu – kontakt AiQMS.",
-  ukendt:
-    "Noget gik galt på serveren. Prøv igen – fortsætter det, så kontakt AiQMS.",
+    "Databasen afviste oprettelsen. Det sker typisk hvis opsætnings-reglerne (migration 004) ikke er kørt endnu.",
+  ukendt: "Noget gik galt på serveren.",
 };
 
 const inputCls =
@@ -21,7 +20,7 @@ const inputCls =
 export default async function VelkommenPage({
   searchParams,
 }: {
-  searchParams: { fejl?: string };
+  searchParams: { fejl?: string; detalje?: string };
 }) {
   const ctx = await getOrgContext();
 
@@ -29,6 +28,7 @@ export default async function VelkommenPage({
   if (ctx.orgId) redirect("/dashboard");
 
   const fejl = searchParams.fejl ? FEJL_TEKST[searchParams.fejl] : null;
+  const detalje = searchParams.detalje ?? null;
 
   return (
     <main className="flex min-h-screen items-center justify-center px-6 py-12">
@@ -76,9 +76,14 @@ export default async function VelkommenPage({
           </div>
 
           {fejl ? (
-            <p className="border border-state-bad/30 bg-state-bad/5 px-3 py-2 text-[14px] text-state-bad">
-              {fejl}
-            </p>
+            <div className="border border-state-bad/30 bg-state-bad/5 px-3 py-2">
+              <p className="text-[14px] text-state-bad">{fejl}</p>
+              {detalje ? (
+                <p className="mt-2 break-all font-mono text-[12px] text-ink-soft">
+                  {detalje}
+                </p>
+              ) : null}
+            </div>
           ) : null}
 
           <button type="submit" className="btn w-full">
