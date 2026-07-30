@@ -10,7 +10,7 @@ alter table public.organizations
   add column if not exists autorisationsnr text,
   add column if not exists adresse         text,
   add column if not exists postnr          text,
-  add column if not exists by              text,
+  add column if not exists bynavn            text,
   add column if not exists telefon         text,
   add column if not exists email           text,
   add column if not exists kontaktperson   text,
