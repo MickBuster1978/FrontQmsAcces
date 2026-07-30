@@ -6,13 +6,16 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-/**
- * Førstegangs-opsætning – helt gennem RLS.
- *
- * VIGTIGT mønster: vi genererer org-id'et SELV og indsætter uden
- * .select(). At læse rækken tilbage ville kræve select-policy
- * (medlemskab) som først findes EFTER næste skridt – hønen og ægget.
- */
+/** Pak databasefejlen med i URL'en så den kan VISES i stedet for at gemmes */
+function medDetalje(
+  sti: string,
+  fejl: { code?: string; message?: string } | null,
+  trin: string
+) {
+  const tekst = `${trin} | ${fejl?.code ?? "?"} | ${fejl?.message ?? "?"}`;
+  return `${sti}&detalje=${encodeURIComponent(tekst.slice(0, 300))}`;
+}
+
 export async function foersteOpsaetning(formData: FormData) {
   const supabase = createClient();
   const {
@@ -29,15 +32,16 @@ export async function foersteOpsaetning(formData: FormData) {
 
   const orgId = randomUUID();
 
-  // 1. Organisation – ingen tilbagelæsning
+  // 1. Organisation – ingen tilbagelæsning (kræver select-policy vi ikke har endnu)
   const { error: orgError } = await supabase
     .from("organizations")
     .insert({ id: orgId, name: orgName });
 
   if (orgError) {
+    console.error("foersteOpsaetning org insert:", orgError);
     if (orgError.code === "23505") redirect("/velkommen?fejl=firma_findes");
     if (orgError.code === "42501") redirect("/velkommen?fejl=rettighed");
-    redirect("/velkommen?fejl=ukendt");
+    redirect(medDetalje("/velkommen?fejl=ukendt", orgError, "org"));
   }
 
   // 2. Medlemskab som admin
@@ -49,7 +53,11 @@ export async function foersteOpsaetning(formData: FormData) {
   });
 
   if (memberError) {
-    redirect("/velkommen?fejl=ukendt");
+    console.error("foersteOpsaetning membership insert:", memberError);
+    if (memberError.code === "42501") {
+      redirect(medDetalje("/velkommen?fejl=rettighed", memberError, "medlem"));
+    }
+    redirect(medDetalje("/velkommen?fejl=ukendt", memberError, "medlem"));
   }
 
   revalidatePath("/", "layout");
