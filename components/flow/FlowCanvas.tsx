@@ -7,6 +7,7 @@ import ReactFlow, {
   Background,
   Controls,
   Handle,
+  MarkerType,
   Position,
   ReactFlowProvider,
   useReactFlow,
@@ -206,7 +207,7 @@ function FlowCanvasInner({
           erCcp: hazardFlags[s.id]?.ccp ?? false,
           erOprp: hazardFlags[s.id]?.oprp ?? false,
         },
-        deletable: false, // trin slettes i tabellen, ikke med tastetryk
+        deletable: false,
       })),
     [steps, hazardFlags]
   );
@@ -219,6 +220,14 @@ function FlowCanvasInner({
         target: e.to_step,
         label: e.label ?? undefined,
         style: { stroke: "#C9600F", strokeWidth: 1.5 },
+        // Pilen peger fra source mod target – dvs. den vej trinene
+        // faktisk blev forbundet i, ikke en gættet retning.
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 18,
+          height: 18,
+          color: "#C9600F",
+        },
       })),
     [edges]
   );
@@ -227,10 +236,8 @@ function FlowCanvasInner({
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(builtEdges);
 
   // useNodesState/useEdgesState sætter kun tilstanden ved FØRSTE render.
-  // Når serveren sender nye steps/edges ned (fx efter router.refresh()
-  // ved oprettelse fra paletten), skal canvasset eksplicit synkroniseres –
-  // ellers ser det nye trin ud til at forsvinde, selvom det ligger korrekt
-  // i databasen (tabellen nedenunder viser det jo, den er ikke ramt af dette).
+  // Når serveren sender nye steps/edges ned, skal canvasset synkroniseres
+  // eksplicit – ellers "forsvinder" nye elementer visuelt.
   useEffect(() => {
     setNodes(builtNodes);
   }, [builtNodes, setNodes]);
@@ -308,7 +315,6 @@ function FlowCanvasInner({
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row">
-      {/* Palet */}
       <div className="flex flex-row gap-2 sm:w-44 sm:flex-none sm:flex-col">
         <p className="label hidden sm:block">Træk ud på diagrammet</p>
         <PaletteItem shape="rektangel" label="Procestrin" symbol="▭" />
@@ -316,7 +322,6 @@ function FlowCanvasInner({
         <PaletteItem shape="cirkel" label="Start/slut" symbol="○" />
       </div>
 
-      {/* Canvas */}
       <div
         ref={wrapperRef}
         onDragOver={onDragOver}
