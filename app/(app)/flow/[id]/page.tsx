@@ -2,9 +2,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import FlowCanvas from "@/components/flow/FlowCanvas";
 import {
   STEP_TYPE_LABELS,
   type FlowDiagram,
+  type ProcessEdge,
   type ProcessStep,
 } from "@/lib/flow/types";
 import { deleteDiagram, deleteStep } from "../actions";
@@ -33,13 +35,17 @@ export default async function DiagramPage({
   if (!diagram) notFound();
   const d = diagram as FlowDiagram;
 
-  const { data: steps } = await supabase
-    .from("process_steps")
-    .select("*")
-    .eq("diagram_id", d.id)
-    .order("step_no");
+  const [{ data: steps }, { data: edges }] = await Promise.all([
+    supabase
+      .from("process_steps")
+      .select("*")
+      .eq("diagram_id", d.id)
+      .order("step_no"),
+    supabase.from("process_edges").select("*").eq("diagram_id", d.id),
+  ]);
 
   const stepList = (steps ?? []) as ProcessStep[];
+  const edgeList = (edges ?? []) as ProcessEdge[];
 
   return (
     <main className="mx-auto max-w-6xl px-6 pb-20 pt-8">
@@ -67,10 +73,14 @@ export default async function DiagramPage({
         </div>
       </header>
 
-      {/* Trin-liste */}
+      {/* Canvas */}
       <section className="mt-8">
-        <div className="rule-double flex items-baseline justify-between pb-3">
-          <h2 className="label">Procestrin ({stepList.length})</h2>
+        <div className="rule-double flex flex-wrap items-baseline justify-between gap-2 pb-3">
+          <h2 className="label">Diagram</h2>
+          <p className="text-[13px] text-ink-faint">
+            Træk trin for at flytte · træk fra bund-prik til top-prik for at
+            forbinde · markér en pil og tryk Backspace for at fjerne den
+          </p>
         </div>
 
         {stepList.length === 0 ? (
@@ -78,8 +88,7 @@ export default async function DiagramPage({
             <p className="text-[17px]">Ingen trin endnu.</p>
             <p className="mx-auto mt-2 max-w-md text-[14px] text-ink-faint">
               Tilføj det første trin – typisk modtagelsen. Hvert trin gemmes
-              som data med sine attributter, og risikoanalysen bygger direkte
-              på dem.
+              som data, og diagrammet tegner sig selv.
             </p>
             <Link
               href={`/flow/${d.id}/nyt-trin`}
@@ -89,6 +98,22 @@ export default async function DiagramPage({
             </Link>
           </div>
         ) : (
+          <div className="mt-6">
+            <FlowCanvas
+              diagramId={d.id}
+              steps={stepList}
+              edges={edgeList}
+            />
+          </div>
+        )}
+      </section>
+
+      {/* Data-tabel */}
+      {stepList.length > 0 ? (
+        <section className="mt-12">
+          <div className="rule-double pb-3">
+            <h2 className="label">Trin som data ({stepList.length})</h2>
+          </div>
           <div className="mt-6 overflow-x-auto">
             <table className="w-full text-left text-[15px]">
               <thead>
@@ -150,10 +175,10 @@ export default async function DiagramPage({
               </tbody>
             </table>
           </div>
-        )}
-      </section>
+        </section>
+      ) : null}
 
-      {/* Farezone: slet diagram */}
+      {/* Farezone */}
       <section className="mt-14 border-t border-ink/10 pt-6">
         <form
           action={deleteDiagram}
