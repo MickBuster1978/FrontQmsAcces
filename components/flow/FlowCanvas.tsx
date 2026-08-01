@@ -29,18 +29,52 @@ import {
 
 type StepNodeData = {
   step: ProcessStep;
+  erCcp: boolean;
+  erOprp: boolean;
 };
 
-/** Custom node i designsproget: type-label, navn, nøglefakta */
+/**
+ * Custom node.
+ * - Øverste forbindelsespunkt (input) er en rombe.
+ * - Nederste forbindelsespunkt (output) er en cirkel.
+ * - CCP/oPRP-badge i hjørnet, men KUN for bekræftede farer – et
+ *   forslag der ikke er taget stilling til, skal ikke se ud som en
+ *   afklaret CCP på diagrammet.
+ */
 function StepNode({ data }: NodeProps<StepNodeData>) {
   const s = data.step;
   return (
-    <div className="w-56 rounded-sm border border-raw-edge bg-raw-deep shadow-sm">
+    <div className="relative w-56 rounded-sm border border-raw-edge bg-raw-deep shadow-sm">
+      {/* Input – rombe */}
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !border-raw !bg-brand"
+        title={s.input_desc ?? "Input"}
+        className="!h-2.5 !w-2.5 !rotate-45 !rounded-none !border-raw !bg-brand"
       />
+
+      {/* CCP / oPRP badges */}
+      {data.erCcp || data.erOprp ? (
+        <div className="absolute -right-1.5 -top-1.5 flex gap-0.5">
+          {data.erCcp ? (
+            <span
+              className="text-[15px] leading-none text-state-bad"
+              title="CCP – kritisk kontrolpunkt (bekræftet)"
+            >
+              ▲
+            </span>
+          ) : null}
+          {data.erOprp ? (
+            <span
+              className="text-[15px] leading-none text-state-warn"
+              title="oPRP – operationelt forudsætningsprogram (bekræftet)"
+            >
+              ▲
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="border-b border-raw-edge px-3 py-1.5">
         <p className="text-[10px] uppercase tracking-label text-ink-faint">
           {s.step_no}. {STEP_TYPE_LABELS[s.step_type]}
@@ -57,10 +91,13 @@ function StepNode({ data }: NodeProps<StepNodeData>) {
           {s.person_contact ? " · personkontakt" : ""}
         </p>
       </div>
+
+      {/* Output – cirkel */}
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2.5 !w-2.5 !border-raw !bg-brand"
+        title={s.output_desc ?? "Output"}
+        className="!h-2.5 !w-2.5 !rounded-full !border-raw !bg-brand"
       />
     </div>
   );
@@ -72,12 +109,15 @@ export type FlowCanvasProps = {
   diagramId: string;
   steps: ProcessStep[];
   edges: ProcessEdge[];
+  /** step_id -> er der en BEKRÆFTET CCP/oPRP-fare på trinnet */
+  hazardFlags: Record<string, { ccp: boolean; oprp: boolean }>;
 };
 
 export default function FlowCanvas({
   diagramId,
   steps,
   edges,
+  hazardFlags,
 }: FlowCanvasProps) {
   const router = useRouter();
 
@@ -87,10 +127,14 @@ export default function FlowCanvas({
         id: s.id,
         type: "step",
         position: { x: Number(s.pos_x), y: Number(s.pos_y) },
-        data: { step: s },
+        data: {
+          step: s,
+          erCcp: hazardFlags[s.id]?.ccp ?? false,
+          erOprp: hazardFlags[s.id]?.oprp ?? false,
+        },
         deletable: false, // trin slettes i tabellen, ikke med tastetryk
       })),
-    [steps]
+    [steps, hazardFlags]
   );
 
   const initialEdges: Edge[] = useMemo(
