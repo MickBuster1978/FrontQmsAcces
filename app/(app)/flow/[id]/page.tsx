@@ -46,6 +46,26 @@ export default async function DiagramPage({
 
   const stepList = (steps ?? []) as ProcessStep[];
   const edgeList = (edges ?? []) as ProcessEdge[];
+  const stepIds = stepList.map((s) => s.id);
+
+  // Kun BEKRÆFTEDE farer må vise et CCP/oPRP-badge på diagrammet.
+  const { data: hazardRows } =
+    stepIds.length > 0
+      ? await supabase
+          .from("step_hazards")
+          .select("step_id, er_ccp, er_oprp")
+          .in("step_id", stepIds)
+          .eq("status", "bekraeftet")
+      : { data: [] as { step_id: string; er_ccp: boolean; er_oprp: boolean }[] };
+
+  const hazardFlags: Record<string, { ccp: boolean; oprp: boolean }> = {};
+  for (const h of hazardRows ?? []) {
+    const nu = hazardFlags[h.step_id] ?? { ccp: false, oprp: false };
+    hazardFlags[h.step_id] = {
+      ccp: nu.ccp || h.er_ccp,
+      oprp: nu.oprp || h.er_oprp,
+    };
+  }
 
   return (
     <main className="mx-auto max-w-6xl px-6 pb-20 pt-8">
@@ -78,8 +98,8 @@ export default async function DiagramPage({
         <div className="rule-double flex flex-wrap items-baseline justify-between gap-2 pb-3">
           <h2 className="label">Diagram</h2>
           <p className="text-[13px] text-ink-faint">
-            Træk trin for at flytte · træk fra bund-prik til top-prik for at
-            forbinde · markér en pil og tryk Backspace for at fjerne den
+            Rombe = input · cirkel = output · ▲ rød = CCP · ▲ gul = oPRP
+            (bekræftet)
           </p>
         </div>
 
@@ -103,6 +123,7 @@ export default async function DiagramPage({
               diagramId={d.id}
               steps={stepList}
               edges={edgeList}
+              hazardFlags={hazardFlags}
             />
           </div>
         )}
