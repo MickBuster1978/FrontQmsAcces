@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getOrgContext } from "@/lib/org";
-import { STEP_TYPES, type StepType } from "@/lib/flow/types";
+import { STEP_TYPES, type NodeShape, type StepType } from "@/lib/flow/types";
 
 /**
  * Opret nyt flowdiagram og hop direkte ind i det.
@@ -52,7 +52,8 @@ export async function deleteDiagram(formData: FormData) {
 }
 
 /**
- * Opret et procestrin med attributter (fra formularen).
+ * Opret et procestrin MED den fulde formular (bruges af den ældre
+ * /nyt-trin-guide). Beholdt uændret – erstattes ikke af createStepQuick.
  */
 export async function createStep(formData: FormData) {
   const ctx = await getOrgContext();
@@ -85,7 +86,7 @@ export async function createStep(formData: FormData) {
 
   const { data: last } = await supabase
     .from("process_steps")
-    .select("id, step_no, pos_y")
+    .select("id, step_no")
     .eq("diagram_id", diagramId)
     .order("step_no", { ascending: false })
     .limit(1)
@@ -101,6 +102,7 @@ export async function createStep(formData: FormData) {
       step_no: stepNo,
       name,
       step_type: stepType,
+      node_shape: "rektangel",
       location_zone: tekst("location_zone"),
       product_open: formData.get("product_open") === "on",
       person_contact: formData.get("person_contact") === "on",
@@ -112,7 +114,7 @@ export async function createStep(formData: FormData) {
       input_desc: tekst("input_desc"),
       output_desc: tekst("output_desc"),
       pos_x: 120,
-      pos_y: (last?.pos_y != null ? Number(last.pos_y) : -40) + 140,
+      pos_y: 80 + stepNo * 140,
     })
     .select("id")
     .single();
@@ -231,7 +233,7 @@ export async function deleteStep(formData: FormData) {
 }
 
 // ============================================================
-// CANVAS-ACTIONS – kaldes fra klienten, ingen redirects
+// CANVAS-ACTIONS – kaldes direkte fra klienten, ingen redirects
 // ============================================================
 
 /** Gem et trins position når det slippes efter træk */
@@ -249,6 +251,87 @@ export async function saveStepPosition(
     .update({ pos_x: posX, pos_y: posY })
     .eq("id", stepId);
 
+  return { ok: !error };
+}
+
+/**
+ * Opret et BART trin ved at slippe en formfigur fra paletten på et
+ * tomt sted på canvas. Ingen type, ingen attributter – det retter
+ * man senere via sidepanelet (næste batch) eller den fulde formular.
+ */
+export async function createStepQuick(
+  diagramId: string,
+  nodeShape: NodeShape,
+  posX: number,
+  posY: number
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false as const };
+
+  const supabase = createClient();
+
+  const { data: last } = await supabase
+    .from("process_steps")
+    .select("step_no")
+    .eq("diagram_id", diagramId)
+    .order("step_no", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const stepNo = (last?.step_no ?? 0) + 1;
+
+  const navn =
+    nodeShape === "rombe"
+      ? "Ny beslutning"
+      : nodeShape === "cirkel"
+        ? "Start/slut"
+        : "Nyt trin";
+
+  const { data, error } = await supabase
+    .from("process_steps")
+    .insert({
+      diagram_id: diagramId,
+      org_id: ctx.orgId,
+      step_no: stepNo,
+      name: navn,
+      step_type: null,
+      node_shape: nodeShape,
+      pos_x: posX,
+      pos_y: posY,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) return { ok: false as const };
+
+  await supabase
+    .from("flow_diagrams")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  return { ok: true as const, stepId: data.id };
+}
+
+/** Omdøb et trin (kaldes efter dobbeltklik + prompt på canvas) */
+export async function renameStep(
+  stepId: string,
+  diagramId: string,
+  newName: string
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+
+  const trimmed = newName.trim();
+  if (trimmed.length === 0) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("process_steps")
+    .update({ name: trimmed })
+    .eq("id", stepId);
+
+  revalidatePath(`/flow/${diagramId}`);
   return { ok: !error };
 }
 
