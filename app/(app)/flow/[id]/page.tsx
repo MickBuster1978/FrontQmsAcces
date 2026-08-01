@@ -82,18 +82,13 @@ export default async function DiagramPage({
               {d.name}
             </h1>
           </div>
-          <div className="flex items-center gap-4">
-            <p className="text-[14px] text-ink-faint">
-              Oprettet {formatDate(d.created_at)}
-            </p>
-            <Link href={`/flow/${d.id}/nyt-trin`} className="btn">
-              Tilføj trin
-            </Link>
-          </div>
+          <p className="text-[14px] text-ink-faint">
+            Oprettet {formatDate(d.created_at)}
+          </p>
         </div>
       </header>
 
-      {/* Canvas */}
+      {/* Canvas + palet – vises altid, også for et helt tomt diagram */}
       <section className="mt-8">
         <div className="rule-double flex flex-wrap items-baseline justify-between gap-2 pb-3">
           <h2 className="label">Diagram</h2>
@@ -104,29 +99,31 @@ export default async function DiagramPage({
         </div>
 
         {stepList.length === 0 ? (
-          <div className="mt-6 border border-dashed border-raw-edge bg-raw-deep p-8 text-center">
-            <p className="text-[17px]">Ingen trin endnu.</p>
-            <p className="mx-auto mt-2 max-w-md text-[14px] text-ink-faint">
-              Tilføj det første trin – typisk modtagelsen. Hvert trin gemmes
-              som data, og diagrammet tegner sig selv.
-            </p>
-            <Link
-              href={`/flow/${d.id}/nyt-trin`}
-              className="btn mt-5 inline-flex"
-            >
-              Tilføj første trin
-            </Link>
-          </div>
-        ) : (
-          <div className="mt-6">
-            <FlowCanvas
-              diagramId={d.id}
-              steps={stepList}
-              edges={edgeList}
-              hazardFlags={hazardFlags}
-            />
-          </div>
-        )}
+          <p className="mt-3 text-[14px] text-ink-faint">
+            Træk et element fra paletten ud på det tomme areal for at oprette
+            det første trin.
+          </p>
+        ) : null}
+
+        <div className="mt-4">
+          <FlowCanvas
+            diagramId={d.id}
+            steps={stepList}
+            edges={edgeList}
+            hazardFlags={hazardFlags}
+          />
+        </div>
+
+        <p className="mt-3 text-[13px] text-ink-faint">
+          Vil du hellere udfylde et trin i den fulde, guidede formular?{" "}
+          <Link
+            href={`/flow/${d.id}/nyt-trin`}
+            className="text-brand underline"
+          >
+            Brug den her
+          </Link>
+          .
+        </p>
       </section>
 
       {/* Data-tabel */}
@@ -157,7 +154,7 @@ export default async function DiagramPage({
                     </td>
                     <td className="py-2.5 pr-4 font-semibold">{s.name}</td>
                     <td className="py-2.5 pr-4">
-                      {STEP_TYPE_LABELS[s.step_type]}
+                      {s.step_type ? STEP_TYPE_LABELS[s.step_type] : "–"}
                     </td>
                     <td className="py-2.5 pr-4">{s.location_zone ?? "–"}</td>
                     <td className="tabular py-2.5 pr-4">
