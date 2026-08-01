@@ -1,6 +1,5 @@
 // lib/flow/types.ts
-// Typer der spejler supabase/migrations/002_flow_model.sql 1:1.
-// Ændres schemaet, ændres denne fil i samme commit.
+// Typer der spejler supabase/migrations/002_flow_model.sql + 008_node_shape.sql.
 
 export const STEP_TYPES = [
   "modtagelse",
@@ -40,6 +39,16 @@ export const STEP_TYPE_LABELS: Record<StepType, string> = {
   intern_flytning: "Intern flytning",
 };
 
+/** Visuel form på canvas – uafhængig af step_type */
+export const NODE_SHAPES = ["rektangel", "rombe", "cirkel"] as const;
+export type NodeShape = (typeof NODE_SHAPES)[number];
+
+export const NODE_SHAPE_LABELS: Record<NodeShape, string> = {
+  rektangel: "Procestrin",
+  rombe: "Beslutning",
+  cirkel: "Start/slut",
+};
+
 export type DiagramStatus = "kladde" | "aktiv" | "arkiveret";
 
 export type FlowDiagram = {
@@ -58,7 +67,9 @@ export type ProcessStep = {
   org_id: string;
   step_no: number;
   name: string;
-  step_type: StepType;
+  /** Null for rombe/cirkel-noder – de er ikke en fysisk proces-type */
+  step_type: StepType | null;
+  node_shape: NodeShape;
   location_zone: string | null;
   product_open: boolean;
   person_contact: boolean;
