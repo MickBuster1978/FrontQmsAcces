@@ -52,10 +52,7 @@ export async function deleteDiagram(formData: FormData) {
 }
 
 /**
- * Opret et procestrin med attributter.
- * - step_no = højeste + 1
- * - auto-kant fra forrige trin (lineært flow som udgangspunkt)
- * - attributter læses fra formfelter med prefix "attr_"
+ * Opret et procestrin med attributter (fra formularen).
  */
 export async function createStep(formData: FormData) {
   const ctx = await getOrgContext();
@@ -86,10 +83,9 @@ export async function createStep(formData: FormData) {
 
   const supabase = createClient();
 
-  // Næste trin-nummer + forrige trin til auto-kant
   const { data: last } = await supabase
     .from("process_steps")
-    .select("id, step_no")
+    .select("id, step_no, pos_y")
     .eq("diagram_id", diagramId)
     .order("step_no", { ascending: false })
     .limit(1)
@@ -115,8 +111,8 @@ export async function createStep(formData: FormData) {
       responsible_role: tekst("responsible_role"),
       input_desc: tekst("input_desc"),
       output_desc: tekst("output_desc"),
-      pos_x: 80,
-      pos_y: 80 + (stepNo - 1) * 120,
+      pos_x: 120,
+      pos_y: (last?.pos_y != null ? Number(last.pos_y) : -40) + 140,
     })
     .select("id")
     .single();
@@ -125,7 +121,6 @@ export async function createStep(formData: FormData) {
     redirect(`/flow/${diagramId}/nyt-trin?type=${stepType}&fejl=ukendt`);
   }
 
-  // Attributter: felter med prefix attr_. Typen afgøres af definitionen.
   const { data: defs } = await supabase
     .from("attribute_definitions")
     .select("id, value_type")
@@ -144,7 +139,6 @@ export async function createStep(formData: FormData) {
     const raw = formData.get(`attr_${def.id}`);
     if (raw === null) {
       if (def.value_type === "boolean") {
-        // Ikke-afkrydset checkbox sendes ikke med – gem eksplicit nej
         rows.push({
           step_id: step.id,
           org_id: ctx.orgId,
@@ -195,7 +189,6 @@ export async function createStep(formData: FormData) {
     await supabase.from("step_attributes").insert(rows);
   }
 
-  // Auto-kant fra forrige trin
   if (last?.id) {
     await supabase.from("process_edges").insert({
       diagram_id: diagramId,
@@ -235,4 +228,74 @@ export async function deleteStep(formData: FormData) {
 
   revalidatePath(`/flow/${diagramId}`);
   redirect(`/flow/${diagramId}`);
+}
+
+// ============================================================
+// CANVAS-ACTIONS – kaldes fra klienten, ingen redirects
+// ============================================================
+
+/** Gem et trins position når det slippes efter træk */
+export async function saveStepPosition(
+  stepId: string,
+  posX: number,
+  posY: number
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("process_steps")
+    .update({ pos_x: posX, pos_y: posY })
+    .eq("id", stepId);
+
+  return { ok: !error };
+}
+
+/** Opret en kant ved at forbinde to trin på canvas */
+export async function createEdge(
+  diagramId: string,
+  fromStep: string,
+  toStep: string
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+  if (fromStep === toStep) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase.from("process_edges").insert({
+    diagram_id: diagramId,
+    org_id: ctx.orgId,
+    from_step: fromStep,
+    to_step: toStep,
+  });
+
+  await supabase
+    .from("flow_diagrams")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  // 23505 (kanten findes) behandles som ok – slutresultatet er det samme
+  return { ok: !error || error.code === "23505" };
+}
+
+/** Slet en kant (markér + Backspace på canvas) */
+export async function deleteEdge(diagramId: string, edgeId: string) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("process_edges")
+    .delete()
+    .eq("id", edgeId);
+
+  await supabase
+    .from("flow_diagrams")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  return { ok: !error };
 }
