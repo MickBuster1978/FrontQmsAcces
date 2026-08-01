@@ -53,7 +53,7 @@ export async function deleteDiagram(formData: FormData) {
 
 /**
  * Opret et procestrin MED den fulde formular (bruges af den ældre
- * /nyt-trin-guide). Beholdt uændret – erstattes ikke af createStepQuick.
+ * /nyt-trin-guide). Beholdt uændret.
  */
 export async function createStep(formData: FormData) {
   const ctx = await getOrgContext();
@@ -210,6 +210,61 @@ export async function createStep(formData: FormData) {
 }
 
 /**
+ * Opdatér et trins kernefelter fra den redigerbare tabel under canvas.
+ * Dækker bevidst kun det tabellen viser: navn, type, zone, temperatur,
+ * åbent produkt, personkontakt – de felter risikomotoren læser.
+ * Udstyr/roller/input-output redigeres stadig via den fulde formular.
+ */
+export async function updateStepCore(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const stepId = String(formData.get("step_id") ?? "");
+  const diagramId = String(formData.get("diagram_id") ?? "");
+  if (!stepId || !diagramId) redirect("/flow");
+
+  const name = String(formData.get("name") ?? "").trim();
+
+  const stepTypeRaw = String(formData.get("step_type") ?? "");
+  const stepType = STEP_TYPES.includes(stepTypeRaw as StepType)
+    ? (stepTypeRaw as StepType)
+    : null;
+
+  const tal = (key: string): number | null => {
+    const v = String(formData.get(key) ?? "").trim().replace(",", ".");
+    if (v === "") return null;
+    const n = Number(v);
+    return Number.isNaN(n) ? null : n;
+  };
+
+  const supabase = createClient();
+
+  await supabase
+    .from("process_steps")
+    .update({
+      // Tomt navn ignoreres stille – vi overskriver ikke et rigtigt
+      // navn med en fejl, og der er ingen skarp grund til at blokere.
+      ...(name.length > 0 ? { name } : {}),
+      step_type: stepType,
+      location_zone:
+        String(formData.get("location_zone") ?? "").trim() || null,
+      temp_target_c: tal("temp_target_c"),
+      temp_tolerance_c: tal("temp_tolerance_c"),
+      product_open: formData.get("product_open") === "on",
+      person_contact: formData.get("person_contact") === "on",
+    })
+    .eq("id", stepId);
+
+  await supabase
+    .from("flow_diagrams")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  redirect(`/flow/${diagramId}`);
+}
+
+/**
  * Slet et trin. Kanter til/fra trinnet ryger via cascade.
  */
 export async function deleteStep(formData: FormData) {
@@ -256,8 +311,7 @@ export async function saveStepPosition(
 
 /**
  * Opret et BART trin ved at slippe en formfigur fra paletten på et
- * tomt sted på canvas. Ingen type, ingen attributter – det retter
- * man senere via sidepanelet (næste batch) eller den fulde formular.
+ * tomt sted på canvas.
  */
 export async function createStepQuick(
   diagramId: string,
@@ -359,7 +413,6 @@ export async function createEdge(
     .eq("id", diagramId);
 
   revalidatePath(`/flow/${diagramId}`);
-  // 23505 (kanten findes) behandles som ok – slutresultatet er det samme
   return { ok: !error || error.code === "23505" };
 }
 
