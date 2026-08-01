@@ -21,7 +21,15 @@ const inputCls =
   "mt-1.5 w-full rounded-sm border border-raw-edge bg-raw px-3 py-2 " +
   "text-[16px] outline-none transition-colors focus:border-brand";
 
-function AttributFelt({ def }: { def: AttributeDefinition }) {
+function AttributFelt({
+  def,
+  defaultValue,
+  prefillNote,
+}: {
+  def: AttributeDefinition;
+  defaultValue?: string;
+  prefillNote?: string;
+}) {
   const name = `attr_${def.id}`;
 
   return (
@@ -42,7 +50,7 @@ function AttributFelt({ def }: { def: AttributeDefinition }) {
           id={name}
           name={name}
           required={def.required}
-          defaultValue=""
+          defaultValue={defaultValue ?? ""}
           className={inputCls}
         >
           <option value="" disabled>
@@ -61,11 +69,14 @@ function AttributFelt({ def }: { def: AttributeDefinition }) {
           type={def.value_type === "number" ? "number" : "text"}
           step={def.value_type === "number" ? "any" : undefined}
           required={def.required}
+          defaultValue={defaultValue}
           className={inputCls}
         />
       )}
 
-      {def.help_text ? (
+      {prefillNote ? (
+        <p className="mt-1 text-[13px] text-brand">{prefillNote}</p>
+      ) : def.help_text ? (
         <p className="mt-1 text-[13px] text-ink-faint">
           {def.help_text}
           {def.standard_ref ? ` · ${def.standard_ref}` : ""}
@@ -98,8 +109,12 @@ export default async function NytTrinPage({
 
   const fejl = searchParams.fejl ? FEJL_TEKST[searchParams.fejl] : null;
 
-  // Attribut-definitioner for den valgte type
   let defs: AttributeDefinition[] = [];
+
+  // Udgangstemperatur fra forrige trin – forudfylder dette trins
+  // indgangstemperatur, så samme tal ikke tastes to gange.
+  let forrigeUdgangstemp: string | undefined;
+
   if (valgtType) {
     const { data } = await supabase
       .from("attribute_definitions")
@@ -109,6 +124,27 @@ export default async function NytTrinPage({
       (data ?? []) as AttributeDefinition[],
       valgtType
     );
+
+    const { data: forrigeTrin } = await supabase
+      .from("process_steps")
+      .select("id")
+      .eq("diagram_id", diagram.id)
+      .order("step_no", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (forrigeTrin) {
+      const { data: udgangstemp } = await supabase
+        .from("step_attributes")
+        .select("value_num")
+        .eq("step_id", forrigeTrin.id)
+        .eq("attr_id", "kernetemp_ud")
+        .maybeSingle();
+
+      if (udgangstemp?.value_num != null) {
+        forrigeUdgangstemp = String(udgangstemp.value_num);
+      }
+    }
   }
 
   return (
@@ -167,6 +203,10 @@ export default async function NytTrinPage({
 
           <section>
             <h2 className="label rule-double pb-2">2. Om trinnet</h2>
+            <p className="mt-2 text-[13px] text-ink-faint">
+              Kun navnet er påkrævet. Resten kan du udfylde nu eller lade stå
+              tomt.
+            </p>
             <div className="mt-4 grid gap-5 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <label htmlFor="name" className="label">
@@ -303,9 +343,23 @@ export default async function NytTrinPage({
               <h2 className="label rule-double pb-2">
                 3. Specifikt for {STEP_TYPE_LABELS[valgtType].toLowerCase()}
               </h2>
+              <p className="mt-2 text-[13px] text-ink-faint">
+                Ingen af felterne herunder er påkrævede.
+              </p>
               <div className="mt-4 grid gap-5 sm:grid-cols-2">
                 {defs.map((d) => (
-                  <AttributFelt key={d.id} def={d} />
+                  <AttributFelt
+                    key={d.id}
+                    def={d}
+                    defaultValue={
+                      d.id === "kernetemp_ind" ? forrigeUdgangstemp : undefined
+                    }
+                    prefillNote={
+                      d.id === "kernetemp_ind" && forrigeUdgangstemp
+                        ? "Forudfyldt fra forrige trins udgangstemperatur – ret det, hvis der er sket noget undervejs (fx transport eller nedkøling)."
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
             </section>
