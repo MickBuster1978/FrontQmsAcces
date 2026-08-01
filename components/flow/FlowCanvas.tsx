@@ -1,7 +1,7 @@
 // components/flow/FlowCanvas.tsx
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import ReactFlow, {
   Background,
@@ -73,9 +73,8 @@ function ShapeBody({
 
 /**
  * Custom node. Rektangel viser fulde fakta (type, temp, zone).
- * Rombe/cirkel viser kun navnet – de er flow-elementer, ikke procestrin
- * med egne fakta. CCP/oPRP-badge vises for alle former, men kun for
- * BEKRÆFTEDE farer.
+ * Rombe/cirkel viser kun navnet. CCP/oPRP-badge vises for alle
+ * former, men kun for BEKRÆFTEDE farer.
  */
 function StepNode({ data }: NodeProps<StepNodeData>) {
   const s = data.step;
@@ -196,7 +195,7 @@ function FlowCanvasInner({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { project } = useReactFlow();
 
-  const initialNodes: Node<StepNodeData>[] = useMemo(
+  const builtNodes: Node<StepNodeData>[] = useMemo(
     () =>
       steps.map((s) => ({
         id: s.id,
@@ -212,7 +211,7 @@ function FlowCanvasInner({
     [steps, hazardFlags]
   );
 
-  const initialEdges: Edge[] = useMemo(
+  const builtEdges: Edge[] = useMemo(
     () =>
       edges.map((e) => ({
         id: e.id,
@@ -224,8 +223,21 @@ function FlowCanvasInner({
     [edges]
   );
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [rfEdges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(builtNodes);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(builtEdges);
+
+  // useNodesState/useEdgesState sætter kun tilstanden ved FØRSTE render.
+  // Når serveren sender nye steps/edges ned (fx efter router.refresh()
+  // ved oprettelse fra paletten), skal canvasset eksplicit synkroniseres –
+  // ellers ser det nye trin ud til at forsvinde, selvom det ligger korrekt
+  // i databasen (tabellen nedenunder viser det jo, den er ikke ramt af dette).
+  useEffect(() => {
+    setNodes(builtNodes);
+  }, [builtNodes, setNodes]);
+
+  useEffect(() => {
+    setRfEdges(builtEdges);
+  }, [builtEdges, setRfEdges]);
 
   const onNodeDragStop = useCallback(
     async (_: unknown, node: Node) => {
