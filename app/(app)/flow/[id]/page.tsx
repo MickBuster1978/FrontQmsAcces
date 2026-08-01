@@ -4,12 +4,13 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import FlowCanvas from "@/components/flow/FlowCanvas";
 import {
+  STEP_TYPES,
   STEP_TYPE_LABELS,
   type FlowDiagram,
   type ProcessEdge,
   type ProcessStep,
 } from "@/lib/flow/types";
-import { deleteDiagram, deleteStep } from "../actions";
+import { deleteDiagram, deleteStep, updateStepCore } from "../actions";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("da-DK", {
@@ -18,6 +19,10 @@ function formatDate(iso: string) {
     year: "numeric",
   });
 }
+
+const cellInputCls =
+  "w-full rounded-sm border border-raw-edge bg-raw px-2 py-1 text-[14px] " +
+  "outline-none transition-colors focus:border-brand";
 
 export default async function DiagramPage({
   params,
@@ -48,7 +53,6 @@ export default async function DiagramPage({
   const edgeList = (edges ?? []) as ProcessEdge[];
   const stepIds = stepList.map((s) => s.id);
 
-  // Kun BEKRÆFTEDE farer må vise et CCP/oPRP-badge på diagrammet.
   const { data: hazardRows } =
     stepIds.length > 0
       ? await supabase
@@ -88,13 +92,13 @@ export default async function DiagramPage({
         </div>
       </header>
 
-      {/* Canvas + palet – vises altid, også for et helt tomt diagram */}
+      {/* Canvas + palet */}
       <section className="mt-8">
         <div className="rule-double flex flex-wrap items-baseline justify-between gap-2 pb-3">
           <h2 className="label">Diagram</h2>
           <p className="text-[13px] text-ink-faint">
-            Rombe = input · cirkel = output · ▲ rød = CCP · ▲ gul = oPRP
-            (bekræftet)
+            Rombe = input · cirkel = output · pil = flowretning · ▲ rød = CCP
+            · ▲ gul = oPRP (bekræftet)
           </p>
         </div>
 
@@ -126,70 +130,159 @@ export default async function DiagramPage({
         </p>
       </section>
 
-      {/* Data-tabel */}
+      {/* Redigerbar data-tabel */}
       {stepList.length > 0 ? (
         <section className="mt-12">
           <div className="rule-double pb-3">
             <h2 className="label">Trin som data ({stepList.length})</h2>
+            <p className="mt-1 text-[13px] text-ink-faint">
+              Type, åbent produkt og personkontakt er det risikomotoren
+              matcher fareforslag ud fra – ret dem her hvis de mangler, og
+              tryk Gem pr. række.
+            </p>
           </div>
+
           <div className="mt-6 overflow-x-auto">
-            <table className="w-full text-left text-[15px]">
+            <table className="w-full text-left text-[14px]">
               <thead>
                 <tr className="border-b border-ink/15">
-                  <th className="label py-2 pr-4 font-normal">Nr.</th>
-                  <th className="label py-2 pr-4 font-normal">Trin</th>
-                  <th className="label py-2 pr-4 font-normal">Type</th>
-                  <th className="label py-2 pr-4 font-normal">Zone</th>
-                  <th className="label py-2 pr-4 font-normal">Temp.</th>
-                  <th className="label py-2 pr-4 font-normal">Åbent</th>
-                  <th className="label py-2 pr-4 font-normal">Kontakt</th>
+                  <th className="label py-2 pr-3 font-normal">Nr.</th>
+                  <th className="label py-2 pr-3 font-normal">Trin</th>
+                  <th className="label py-2 pr-3 font-normal">Type</th>
+                  <th className="label py-2 pr-3 font-normal">Zone</th>
+                  <th className="label py-2 pr-3 font-normal">Temp °C</th>
+                  <th className="label py-2 pr-3 font-normal">± tol.</th>
+                  <th className="label py-2 pr-3 font-normal">Åbent</th>
+                  <th className="label py-2 pr-3 font-normal">Kontakt</th>
                   <th className="py-2 font-normal"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink/10">
-                {stepList.map((s) => (
-                  <tr key={s.id}>
-                    <td className="tabular py-2.5 pr-4 text-ink-faint">
-                      {s.step_no}
-                    </td>
-                    <td className="py-2.5 pr-4 font-semibold">{s.name}</td>
-                    <td className="py-2.5 pr-4">
-                      {s.step_type ? STEP_TYPE_LABELS[s.step_type] : "–"}
-                    </td>
-                    <td className="py-2.5 pr-4">{s.location_zone ?? "–"}</td>
-                    <td className="tabular py-2.5 pr-4">
-                      {s.temp_target_c != null
-                        ? `${s.temp_target_c}°C${
-                            s.temp_tolerance_c != null
-                              ? ` ±${s.temp_tolerance_c}`
-                              : ""
-                          }`
-                        : "–"}
-                    </td>
-                    <td className="py-2.5 pr-4">
-                      {s.product_open ? "Ja" : "Nej"}
-                    </td>
-                    <td className="py-2.5 pr-4">
-                      {s.person_contact ? "Ja" : "Nej"}
-                    </td>
-                    <td className="py-2.5 text-right">
-                      <form action={deleteStep} className="inline">
-                        <input type="hidden" name="step_id" value={s.id} />
-                        <input
-                          type="hidden"
-                          name="diagram_id"
-                          value={d.id}
-                        />
-                        <button
-                          type="submit"
-                          className="text-[13px] text-ink-faint underline hover:text-state-bad"
+                {stepList.map((s) => {
+                  const formId = `trin-${s.id}`;
+                  return (
+                    <tr key={s.id}>
+                      <td className="tabular py-2 pr-3 align-top text-ink-faint">
+                        {s.step_no}
+                        {/* Anker-form: selve bindingen til updateStepCore.
+                            Felterne der udgør formen sidder i de andre
+                            celler via form={formId} – gyldig HTML5. */}
+                        <form
+                          id={formId}
+                          action={updateStepCore}
+                          className="hidden"
                         >
-                          Slet
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                ))}
+                          <input type="hidden" name="step_id" value={s.id} />
+                          <input
+                            type="hidden"
+                            name="diagram_id"
+                            value={d.id}
+                          />
+                        </form>
+                      </td>
+                      <td className="py-2 pr-3 align-top">
+                        <input
+                          form={formId}
+                          name="name"
+                          type="text"
+                          defaultValue={s.name}
+                          className={cellInputCls}
+                        />
+                      </td>
+                      <td className="py-2 pr-3 align-top">
+                        <select
+                          form={formId}
+                          name="step_type"
+                          defaultValue={s.step_type ?? ""}
+                          className={cellInputCls}
+                        >
+                          <option value="">– Ikke sat –</option>
+                          {STEP_TYPES.map((t) => (
+                            <option key={t} value={t}>
+                              {STEP_TYPE_LABELS[t]}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-2 pr-3 align-top">
+                        <input
+                          form={formId}
+                          name="location_zone"
+                          type="text"
+                          defaultValue={s.location_zone ?? ""}
+                          className={cellInputCls}
+                        />
+                      </td>
+                      <td className="py-2 pr-3 align-top">
+                        <input
+                          form={formId}
+                          name="temp_target_c"
+                          type="number"
+                          step="any"
+                          defaultValue={s.temp_target_c ?? ""}
+                          className={`tabular ${cellInputCls}`}
+                        />
+                      </td>
+                      <td className="py-2 pr-3 align-top">
+                        <input
+                          form={formId}
+                          name="temp_tolerance_c"
+                          type="number"
+                          step="any"
+                          defaultValue={s.temp_tolerance_c ?? ""}
+                          className={`tabular ${cellInputCls}`}
+                        />
+                      </td>
+                      <td className="py-2 pr-3 pt-2.5 align-top">
+                        <input
+                          form={formId}
+                          name="product_open"
+                          type="checkbox"
+                          defaultChecked={s.product_open}
+                          className="h-4 w-4"
+                        />
+                      </td>
+                      <td className="py-2 pr-3 pt-2.5 align-top">
+                        <input
+                          form={formId}
+                          name="person_contact"
+                          type="checkbox"
+                          defaultChecked={s.person_contact}
+                          className="h-4 w-4"
+                        />
+                      </td>
+                      <td className="py-2 align-top">
+                        <div className="flex flex-col gap-1.5">
+                          <button
+                            form={formId}
+                            type="submit"
+                            className="text-[13px] text-brand underline"
+                          >
+                            Gem
+                          </button>
+                          <form action={deleteStep}>
+                            <input
+                              type="hidden"
+                              name="step_id"
+                              value={s.id}
+                            />
+                            <input
+                              type="hidden"
+                              name="diagram_id"
+                              value={d.id}
+                            />
+                            <button
+                              type="submit"
+                              className="text-[13px] text-ink-faint underline hover:text-state-bad"
+                            >
+                              Slet
+                            </button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
