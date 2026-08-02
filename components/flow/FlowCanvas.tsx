@@ -4,15 +4,19 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import ReactFlow, {
+  BaseEdge,
   Background,
   Controls,
+  EdgeLabelRenderer,
   Handle,
   MarkerType,
   Position,
   ReactFlowProvider,
+  getStraightPath,
   useReactFlow,
   type Connection,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeProps,
   useEdgesState,
@@ -35,9 +39,44 @@ import {
 
 type StepNodeData = {
   step: ProcessStep;
-  erCcp: boolean;
-  erOprp: boolean;
+  onRename: (stepId: string, newName: string) => void;
 };
+
+/** Fire forbindelsespunkter – top/højre/bund/venstre – hver med
+ * source OG target stablet samme sted, så man kan forbinde fra
+ * og til alle sider, ikke kun top-til-bund. */
+function FourSideHandles() {
+  const sides = [
+    { pos: Position.Top, id: "top" },
+    { pos: Position.Right, id: "right" },
+    { pos: Position.Bottom, id: "bottom" },
+    { pos: Position.Left, id: "left" },
+  ] as const;
+
+  const handleCls =
+    "!h-3 !w-3 !rounded-none !border-2 !border-raw !bg-yellow-400";
+
+  return (
+    <>
+      {sides.map(({ pos, id }) => (
+        <div key={id}>
+          <Handle
+            type="target"
+            position={pos}
+            id={`${id}-target`}
+            className={handleCls}
+          />
+          <Handle
+            type="source"
+            position={pos}
+            id={`${id}-source`}
+            className={handleCls}
+          />
+        </div>
+      ))}
+    </>
+  );
+}
 
 /** Formen omkring nodens indhold – rektangel/rombe/cirkel */
 function ShapeBody({
@@ -72,44 +111,50 @@ function ShapeBody({
   );
 }
 
-/**
- * Custom node. Rektangel viser fulde fakta (type, temp, zone).
- * Rombe/cirkel viser kun navnet. CCP/oPRP-badge vises for alle
- * former, men kun for BEKRÆFTEDE farer.
- */
-function StepNode({ data }: NodeProps<StepNodeData>) {
+/** Inputfelt til navnet – findes i alle tre former, gemmer ved blur/Enter.
+ * key={s.name} tvinger feltet til at "nulstille" sig når navnet ændres
+ * udefra (fx efter et refresh), så det ikke viser en gammel tekst. */
+function NameField({
+  id,
+  name,
+  shape,
+  onRename,
+}: {
+  id: string;
+  name: string;
+  shape: NodeShape;
+  onRename: (stepId: string, newName: string) => void;
+}) {
+  const base =
+    "nodrag w-full border-none bg-transparent p-0 outline-none " +
+    "focus:bg-raw focus:px-1 focus:py-0.5";
+  const cls =
+    shape === "rektangel"
+      ? `${base} text-[14px] font-semibold leading-snug`
+      : `${base} text-center text-[12px] font-semibold leading-snug`;
+
+  return (
+    <input
+      key={name}
+      defaultValue={name}
+      onBlur={(e) => onRename(id, e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className={cls}
+    />
+  );
+}
+
+/** Custom node. Rektangel viser fulde fakta under navnet; rombe/cirkel
+ * viser kun navnet. Navnet er altid skrivbart direkte i boksen. */
+function StepNode({ id, data }: NodeProps<StepNodeData>) {
   const s = data.step;
   const shape = s.node_shape;
 
   return (
     <div className="relative">
-      <Handle
-        type="target"
-        position={Position.Top}
-        title={s.input_desc ?? "Input"}
-        className="!h-2.5 !w-2.5 !rotate-45 !rounded-none !border-raw !bg-brand"
-      />
-
-      {data.erCcp || data.erOprp ? (
-        <div className="absolute -right-1.5 -top-1.5 z-10 flex gap-0.5">
-          {data.erCcp ? (
-            <span
-              className="text-[15px] leading-none text-state-bad"
-              title="CCP – kritisk kontrolpunkt (bekræftet)"
-            >
-              ▲
-            </span>
-          ) : null}
-          {data.erOprp ? (
-            <span
-              className="text-[15px] leading-none text-state-warn"
-              title="oPRP – operationelt forudsætningsprogram (bekræftet)"
-            >
-              ▲
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+      <FourSideHandles />
 
       <ShapeBody shape={shape}>
         {shape === "rektangel" ? (
@@ -121,9 +166,12 @@ function StepNode({ data }: NodeProps<StepNodeData>) {
               </p>
             </div>
             <div className="px-3 py-2">
-              <p className="text-[14px] font-semibold leading-snug">
-                {s.name}
-              </p>
+              <NameField
+                id={id}
+                name={s.name}
+                shape={shape}
+                onRename={data.onRename}
+              />
               <p className="mt-1 text-[12px] text-ink-soft">
                 {s.temp_target_c != null ? `${s.temp_target_c}°C` : "–"}
                 {s.location_zone ? ` · ${s.location_zone}` : ""}
@@ -135,21 +183,70 @@ function StepNode({ data }: NodeProps<StepNodeData>) {
             </div>
           </>
         ) : (
-          <p className="font-semibold">{s.name}</p>
+          <NameField
+            id={id}
+            name={s.name}
+            shape={shape}
+            onRename={data.onRename}
+          />
         )}
       </ShapeBody>
-
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        title={s.output_desc ?? "Output"}
-        className="!h-2.5 !w-2.5 !rounded-full !border-raw !bg-brand"
-      />
     </div>
   );
 }
 
 const nodeTypes = { step: StepNode };
+
+/** Kant med et lille × ved midtpunktet – synligt, klikbart alternativ
+ * til at markere pilen og trykke Backspace. */
+type EdgeData = { onDelete: (edgeId: string) => void };
+
+function DeletableEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  markerEnd,
+  style,
+  data,
+}: EdgeProps<EdgeData>) {
+  const [edgePath, labelX, labelY] = getStraightPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+  });
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      <EdgeLabelRenderer>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            data?.onDelete(id);
+          }}
+          title="Slet forbindelse"
+          style={{
+            position: "absolute",
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            pointerEvents: "all",
+          }}
+          className="nodrag nopan flex h-4 w-4 items-center justify-center
+                     rounded-full border border-state-bad bg-raw text-[11px]
+                     leading-none text-state-bad transition-colors
+                     hover:bg-state-bad hover:text-raw"
+        >
+          ×
+        </button>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+const edgeTypes = { deletable: DeletableEdge };
 
 function PaletteItem({
   shape,
@@ -183,18 +280,35 @@ export type FlowCanvasProps = {
   diagramId: string;
   steps: ProcessStep[];
   edges: ProcessEdge[];
-  hazardFlags: Record<string, { ccp: boolean; oprp: boolean }>;
+  /** Vestigial indtil næste batch fjerner den fra page.tsx – ubrugt her. */
+  hazardFlags?: Record<string, { ccp: boolean; oprp: boolean }>;
 };
 
-function FlowCanvasInner({
-  diagramId,
-  steps,
-  edges,
-  hazardFlags,
-}: FlowCanvasProps) {
+function FlowCanvasInner({ diagramId, steps, edges }: FlowCanvasProps) {
   const router = useRouter();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { project } = useReactFlow();
+
+  const handleRename = useCallback(
+    async (stepId: string, newName: string) => {
+      const trimmed = newName.trim();
+      if (trimmed.length === 0) {
+        router.refresh(); // tomt navn: hent det gamle tilbage
+        return;
+      }
+      await renameStep(stepId, diagramId, trimmed);
+      router.refresh();
+    },
+    [diagramId, router]
+  );
+
+  const handleDeleteEdge = useCallback(
+    async (edgeId: string) => {
+      await deleteEdge(diagramId, edgeId);
+      router.refresh();
+    },
+    [diagramId, router]
+  );
 
   const builtNodes: Node<StepNodeData>[] = useMemo(
     () =>
@@ -202,42 +316,38 @@ function FlowCanvasInner({
         id: s.id,
         type: "step",
         position: { x: Number(s.pos_x), y: Number(s.pos_y) },
-        data: {
-          step: s,
-          erCcp: hazardFlags[s.id]?.ccp ?? false,
-          erOprp: hazardFlags[s.id]?.oprp ?? false,
-        },
+        data: { step: s, onRename: handleRename },
         deletable: false,
       })),
-    [steps, hazardFlags]
+    [steps, handleRename]
   );
 
   const builtEdges: Edge[] = useMemo(
     () =>
       edges.map((e) => ({
         id: e.id,
+        type: "deletable",
         source: e.from_step,
         target: e.to_step,
         label: e.label ?? undefined,
         style: { stroke: "#C9600F", strokeWidth: 1.5 },
-        // Pilen peger fra source mod target – dvs. den vej trinene
-        // faktisk blev forbundet i, ikke en gættet retning.
         markerEnd: {
           type: MarkerType.ArrowClosed,
           width: 18,
           height: 18,
           color: "#C9600F",
         },
+        data: { onDelete: handleDeleteEdge },
       })),
-    [edges]
+    [edges, handleDeleteEdge]
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(builtNodes);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(builtEdges);
 
   // useNodesState/useEdgesState sætter kun tilstanden ved FØRSTE render.
-  // Når serveren sender nye steps/edges ned, skal canvasset synkroniseres
-  // eksplicit – ellers "forsvinder" nye elementer visuelt.
+  // Uden denne synkronisering "forsvinder" nye/rettede elementer visuelt
+  // efter et router.refresh(), selvom de er gemt korrekt i databasen.
   useEffect(() => {
     setNodes(builtNodes);
   }, [builtNodes, setNodes]);
@@ -268,17 +378,6 @@ function FlowCanvasInner({
         await deleteEdge(diagramId, e.id);
       }
       router.refresh();
-    },
-    [diagramId, router]
-  );
-
-  const onNodeDoubleClick = useCallback(
-    async (_: unknown, node: Node<StepNodeData>) => {
-      const nytNavn = window.prompt("Nyt navn:", node.data.step.name);
-      if (nytNavn && nytNavn.trim().length > 0) {
-        await renameStep(node.id, diagramId, nytNavn);
-        router.refresh();
-      }
     },
     [diagramId, router]
   );
@@ -332,10 +431,10 @@ function FlowCanvasInner({
           nodes={nodes}
           edges={rfEdges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeDragStop={onNodeDragStop}
-          onNodeDoubleClick={onNodeDoubleClick}
           onConnect={onConnect}
           onEdgesDelete={onEdgesDelete}
           deleteKeyCode={["Backspace", "Delete"]}
