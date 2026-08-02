@@ -71,9 +71,12 @@ type StepNodeData = {
   linkedLabel: string | null;
 };
 
-/** Fire forbindelsespunkter – top/højre/bund/venstre – hver med
- * source OG target stablet samme sted, så man kan forbinde fra
- * og til alle sider. */
+/**
+ * Fire forbindelsespunkter – top/højre/bund/venstre. ÉT element pr.
+ * side (ikke to stablede), gjort tovejs via isConnectableStart/End –
+ * det er den robuste metode, i modsætning til at stable en source-
+ * og target-handle oven på hinanden, som er upålidelig for museklik.
+ */
 function FourSideHandles() {
   const sides = [
     { pos: Position.Top, id: "top" },
@@ -88,20 +91,15 @@ function FourSideHandles() {
   return (
     <>
       {sides.map(({ pos, id }) => (
-        <div key={id}>
-          <Handle
-            type="target"
-            position={pos}
-            id={`${id}-target`}
-            className={handleCls}
-          />
-          <Handle
-            type="source"
-            position={pos}
-            id={`${id}-source`}
-            className={handleCls}
-          />
-        </div>
+        <Handle
+          key={id}
+          type="source"
+          position={pos}
+          id={id}
+          isConnectableStart
+          isConnectableEnd
+          className={handleCls}
+        />
       ))}
     </>
   );
@@ -109,8 +107,8 @@ function FourSideHandles() {
 
 /**
  * Flerlinjet, selvvoksende tekstfelt. Enter laver linjeskift (native
- * textarea-adfærd, ingen onKeyDown-håndtering nødvendig) – gemmes ved
- * blur. key={name} nulstiller feltet korrekt når navnet ændres udefra.
+ * textarea-adfærd) – gemmes ved blur. key={name} nulstiller feltet
+ * korrekt når navnet ændres udefra.
  */
 function AutoTextarea({
   id,
