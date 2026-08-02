@@ -2,7 +2,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import FlowCanvas from "@/components/flow/FlowCanvas";
+import FlowCanvas, {
+  type ConfirmedHazardOption,
+} from "@/components/flow/FlowCanvas";
 import { deleteDiagram } from "../actions";
 import type { FlowDiagram, ProcessEdge, ProcessStep } from "@/lib/flow/types";
 
@@ -41,6 +43,64 @@ export default async function DiagramPage({
 
   const stepList = (steps ?? []) as ProcessStep[];
   const edgeList = (edges ?? []) as ProcessEdge[];
+  const stepIds = stepList.map((s) => s.id);
+
+  // Separat, smal forespørgsel for linked_hazard_id – undgår at skulle
+  // udvide den delte ProcessStep-type for ét canvas-specifikt felt.
+  const { data: linkRows } =
+    stepIds.length > 0
+      ? await supabase
+          .from("process_steps")
+          .select("id, linked_hazard_id")
+          .in("id", stepIds)
+      : { data: [] as { id: string; linked_hazard_id: string | null }[] };
+
+  const linkedHazardByStep: Record<string, string | null> = {};
+  for (const row of linkRows ?? []) {
+    linkedHazardByStep[row.id] = row.linked_hazard_id;
+  }
+
+  // Bekræftede CCP/oPRP-farer fra risikomodulet, med trin-nummer til
+  // konteksten i dropdownen.
+  type HazardJoinRow = {
+    id: string;
+    label: string;
+    process_steps: { step_no: number } | { step_no: number }[] | null;
+  };
+
+  function toOptions(rows: HazardJoinRow[] | null): ConfirmedHazardOption[] {
+    return (rows ?? []).map((r) => {
+      const stepInfo = Array.isArray(r.process_steps)
+        ? r.process_steps[0]
+        : r.process_steps;
+      return {
+        id: r.id,
+        label: r.label,
+        stepNo: stepInfo?.step_no ?? 0,
+      };
+    });
+  }
+
+  const [{ data: ccpRows }, { data: oprpRows }] =
+    stepIds.length > 0
+      ? await Promise.all([
+          supabase
+            .from("step_hazards")
+            .select("id, label, process_steps(step_no)")
+            .in("step_id", stepIds)
+            .eq("er_ccp", true)
+            .eq("status", "bekraeftet"),
+          supabase
+            .from("step_hazards")
+            .select("id, label, process_steps(step_no)")
+            .in("step_id", stepIds)
+            .eq("er_oprp", true)
+            .eq("status", "bekraeftet"),
+        ])
+      : [{ data: [] }, { data: [] }];
+
+  const confirmedCcpHazards = toOptions(ccpRows as HazardJoinRow[] | null);
+  const confirmedOprpHazards = toOptions(oprpRows as HazardJoinRow[] | null);
 
   return (
     <main className="mx-auto max-w-6xl px-6 pb-20 pt-8">
@@ -68,7 +128,8 @@ export default async function DiagramPage({
         <div className="rule-double flex flex-wrap items-baseline justify-between gap-2 pb-3">
           <h2 className="label">Diagram</h2>
           <p className="text-[13px] text-ink-faint">
-            Gule felter forbinder fra alle sider · pilen viser flowretning
+            Gule felter forbinder fra alle sider · Enter i en boks laver
+            linjeskift, klik væk for at gemme
           </p>
         </div>
 
@@ -80,7 +141,14 @@ export default async function DiagramPage({
         ) : null}
 
         <div className="mt-4">
-          <FlowCanvas diagramId={d.id} steps={stepList} edges={edgeList} />
+          <FlowCanvas
+            diagramId={d.id}
+            steps={stepList}
+            edges={edgeList}
+            linkedHazardByStep={linkedHazardByStep}
+            confirmedCcpHazards={confirmedCcpHazards}
+            confirmedOprpHazards={confirmedOprpHazards}
+          />
         </div>
 
         <p className="mt-3 text-[13px] text-ink-faint">
