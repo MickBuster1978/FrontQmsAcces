@@ -81,6 +81,8 @@ type StepNodeData = {
   step: ProcessStep;
   onRename: (stepId: string, newName: string) => void;
   linkedLabel: string | null;
+  /** Trin-typens visningsnavn, slået op i stepTypeDefs - data, ikke en fast liste */
+  stepTypeLabel: string | null;
 };
 
 /**
