@@ -27,24 +27,36 @@ import "reactflow/dist/style.css";
 import {
   NODE_SHAPE_LABELS,
   NODE_SHAPES,
-  STEP_TYPE_LABELS,
+  type AttributeDefinition,
   type NodeShape,
   type ProcessEdge,
   type ProcessStep,
+  type StepAttribute,
 } from "@/lib/flow/types";
 import {
   createEdge,
   createStepQuick,
+  createStepType,
   deleteEdge,
   linkHazard,
   renameStep,
   saveStepPosition,
+  updateStepDetails,
 } from "@/app/(app)/flow/actions";
 
 export type ConfirmedHazardOption = {
   id: string;
   label: string;
   stepNo: number;
+};
+
+/** Trin-typer er data, ikke en fast liste - delte starttyper
+ * (org_id null) plus jeres egne (fx "Svejsning" for en metalvirksomhed). */
+export type StepTypeDefinition = {
+  id: string;
+  org_id: string | null;
+  label: string;
+  sort_order: number;
 };
 
 const SHAPE_COLOR: Record<NodeShape, string> = {
@@ -169,8 +181,7 @@ function StepNode({ id, data }: NodeProps<StepNodeData>) {
         >
           <div className="border-b border-raw-edge/60 px-3 py-1.5">
             <p className="text-[10px] uppercase tracking-label text-ink-faint">
-              {s.step_no}.{" "}
-              {s.step_type ? STEP_TYPE_LABELS[s.step_type] : "Type ikke sat"}
+              {s.step_no}. {data.stepTypeLabel ?? "Type ikke sat"}
             </p>
           </div>
           <div className="px-3 py-2">
@@ -257,6 +268,343 @@ function StepNode({ id, data }: NodeProps<StepNodeData>) {
   );
 }
 
+const panelInputCls =
+  "mt-1.5 w-full rounded-sm border border-raw-edge bg-raw px-3 py-2 " +
+  "text-[15px] outline-none transition-colors focus:border-brand";
+
+/** Ét attribut-felt i redigeringspanelet - samme mønster som nyt-trin */
+function PanelAttributFelt({
+  def,
+  existing,
+}: {
+  def: AttributeDefinition;
+  existing: StepAttribute | undefined;
+}) {
+  const name = `attr_${def.id}`;
+
+  if (def.value_type === "boolean") {
+    return (
+      <div>
+        <label className="label">
+          {def.label}
+          {def.required ? " *" : ""}
+        </label>
+        <label className="mt-1.5 flex items-center gap-2 text-[14px]">
+          <input
+            name={name}
+            type="checkbox"
+            defaultChecked={existing?.value_bool ?? false}
+            className="h-4 w-4"
+          />
+          Ja
+        </label>
+      </div>
+    );
+  }
+
+  if (def.value_type === "select") {
+    return (
+      <div>
+        <label htmlFor={name} className="label">
+          {def.label}
+          {def.unit ? ` (${def.unit})` : ""}
+        </label>
+        <select
+          id={name}
+          name={name}
+          defaultValue={existing?.value_text ?? ""}
+          className={panelInputCls}
+        >
+          <option value="">Vælg …</option>
+          {(def.options ?? []).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label htmlFor={name} className="label">
+        {def.label}
+        {def.unit ? ` (${def.unit})` : ""}
+      </label>
+      <input
+        id={name}
+        name={name}
+        type={def.value_type === "number" ? "number" : "text"}
+        step={def.value_type === "number" ? "any" : undefined}
+        defaultValue={
+          def.value_type === "number"
+            ? existing?.value_num ?? ""
+            : existing?.value_text ?? ""
+        }
+        className={panelInputCls}
+      />
+    </div>
+  );
+}
+
+/**
+ * Fuldt redigeringspanel for et rektangel-trin: kernefelter + de
+ * type-specifikke attributter, filtreret reaktivt når typen ændres.
+ * Almindeligt formular-submit (ikke klient-kald) - redirect() i
+ * actionen giver et rent, genindlæst canvas efter gem.
+ */
+function StepEditPanel({
+  diagramId,
+  step,
+  attributeDefs,
+  existingAttrs,
+  stepTypeDefs,
+  onClose,
+}: {
+  diagramId: string;
+  step: ProcessStep;
+  attributeDefs: AttributeDefinition[];
+  existingAttrs: StepAttribute[];
+  stepTypeDefs: StepTypeDefinition[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [valgtType, setValgtType] = useState<string>(step.step_type ?? "");
+  const [visNyType, setVisNyType] = useState(false);
+  const [nytTypeNavn, setNytTypeNavn] = useState("");
+  const [opretterType, setOpretterType] = useState(false);
+
+  const relevanteDefs = valgtType
+    ? attributeDefs
+        .filter((d) => d.applies_to.some((t) => t === valgtType))
+        .sort((a, b) => a.sort_order - b.sort_order)
+    : [];
+
+  const valgtTypeLabel =
+    stepTypeDefs.find((t) => t.id === valgtType)?.label ?? valgtType;
+
+  const existingByAttr = new Map(existingAttrs.map((a) => [a.attr_id, a]));
+
+  async function handleOpretType() {
+    if (nytTypeNavn.trim().length < 2) return;
+    setOpretterType(true);
+    const res = await createStepType(nytTypeNavn.trim());
+    setOpretterType(false);
+    if (res.ok) {
+      setValgtType(res.id);
+      setVisNyType(false);
+      setNytTypeNavn("");
+      router.refresh();
+    }
+  }
+
+  return (
+    <div className="border border-raw-edge bg-raw-deep p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="label">Rediger trin {step.step_no} · {step.name}</h3>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[13px] text-ink-faint underline"
+        >
+          Luk
+        </button>
+      </div>
+
+      <form action={updateStepDetails} className="mt-4 space-y-6">
+        <input type="hidden" name="step_id" value={step.id} />
+        <input type="hidden" name="diagram_id" value={diagramId} />
+        <input type="hidden" name="step_type" value={valgtType} />
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label htmlFor="step_type_select" className="label">
+              Trin-type
+            </label>
+            {visNyType ? (
+              <div className="mt-1.5 flex gap-2">
+                <input
+                  type="text"
+                  autoFocus
+                  value={nytTypeNavn}
+                  onChange={(e) => setNytTypeNavn(e.target.value)}
+                  placeholder="Fx Svejsning"
+                  className={`${panelInputCls} mt-0`}
+                />
+                <button
+                  type="button"
+                  onClick={handleOpretType}
+                  disabled={opretterType || nytTypeNavn.trim().length < 2}
+                  className="btn whitespace-nowrap px-3 disabled:opacity-50"
+                >
+                  {opretterType ? "…" : "Opret"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVisNyType(false)}
+                  className="text-[13px] text-ink-faint underline"
+                >
+                  Fortryd
+                </button>
+              </div>
+            ) : (
+              <select
+                id="step_type_select"
+                value={valgtType}
+                onChange={(e) => {
+                  if (e.target.value === "__ny__") {
+                    setVisNyType(true);
+                  } else {
+                    setValgtType(e.target.value);
+                  }
+                }}
+                className={panelInputCls}
+              >
+                <option value="">– Ikke sat –</option>
+                {stepTypeDefs.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                    {t.org_id ? " (egen)" : ""}
+                  </option>
+                ))}
+                <option value="__ny__">+ Opret ny type…</option>
+              </select>
+            )}
+          </div>
+          <div>
+            <label htmlFor="location_zone" className="label">
+              Zone/lokation
+            </label>
+            <input
+              id="location_zone"
+              name="location_zone"
+              type="text"
+              defaultValue={step.location_zone ?? ""}
+              className={panelInputCls}
+            />
+          </div>
+          <div>
+            <label htmlFor="temp_target_c" className="label">
+              Måltemperatur (°C)
+            </label>
+            <input
+              id="temp_target_c"
+              name="temp_target_c"
+              type="number"
+              step="any"
+              defaultValue={step.temp_target_c ?? ""}
+              className={panelInputCls}
+            />
+          </div>
+          <div>
+            <label htmlFor="temp_tolerance_c" className="label">
+              Tolerance (± °C)
+            </label>
+            <input
+              id="temp_tolerance_c"
+              name="temp_tolerance_c"
+              type="number"
+              step="any"
+              defaultValue={step.temp_tolerance_c ?? ""}
+              className={panelInputCls}
+            />
+          </div>
+          <div>
+            <label htmlFor="equipment" className="label">
+              Udstyr
+            </label>
+            <input
+              id="equipment"
+              name="equipment"
+              type="text"
+              defaultValue={step.equipment ?? ""}
+              className={panelInputCls}
+            />
+          </div>
+          <div>
+            <label htmlFor="responsible_role" className="label">
+              Ansvarlig funktion
+            </label>
+            <input
+              id="responsible_role"
+              name="responsible_role"
+              type="text"
+              defaultValue={step.responsible_role ?? ""}
+              className={panelInputCls}
+            />
+          </div>
+          <div>
+            <label htmlFor="input_desc" className="label">
+              Input
+            </label>
+            <input
+              id="input_desc"
+              name="input_desc"
+              type="text"
+              defaultValue={step.input_desc ?? ""}
+              className={panelInputCls}
+            />
+          </div>
+          <div>
+            <label htmlFor="output_desc" className="label">
+              Output
+            </label>
+            <input
+              id="output_desc"
+              name="output_desc"
+              type="text"
+              defaultValue={step.output_desc ?? ""}
+              className={panelInputCls}
+            />
+          </div>
+          <div className="flex items-center gap-5 pt-1">
+            <label className="flex items-center gap-2 text-[14px]">
+              <input
+                name="product_open"
+                type="checkbox"
+                defaultChecked={step.product_open}
+                className="h-4 w-4"
+              />
+              Åbent produkt
+            </label>
+            <label className="flex items-center gap-2 text-[14px]">
+              <input
+                name="person_contact"
+                type="checkbox"
+                defaultChecked={step.person_contact}
+                className="h-4 w-4"
+              />
+              Personkontakt
+            </label>
+          </div>
+        </div>
+
+        {relevanteDefs.length > 0 ? (
+          <div>
+            <p className="label rule-double pb-2">
+              Specifikt for {valgtTypeLabel.toLowerCase()}
+            </p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {relevanteDefs.map((d) => (
+                <PanelAttributFelt
+                  key={d.id}
+                  def={d}
+                  existing={existingByAttr.get(d.id)}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <button type="submit" className="btn">
+          Gem trin
+        </button>
+      </form>
+    </div>
+  );
+}
+
 const nodeTypes = { step: StepNode };
 
 type EdgeData = { onDelete: (edgeId: string) => void };
@@ -338,6 +686,9 @@ export type FlowCanvasProps = {
   linkedHazardByStep: Record<string, string | null>;
   confirmedCcpHazards: ConfirmedHazardOption[];
   confirmedOprpHazards: ConfirmedHazardOption[];
+  attributeDefs: AttributeDefinition[];
+  stepAttributesByStep: Record<string, StepAttribute[]>;
+  stepTypeDefs: StepTypeDefinition[];
 };
 
 function FlowCanvasInner({
@@ -347,6 +698,9 @@ function FlowCanvasInner({
   linkedHazardByStep,
   confirmedCcpHazards,
   confirmedOprpHazards,
+  attributeDefs,
+  stepAttributesByStep,
+  stepTypeDefs,
 }: FlowCanvasProps) {
   const router = useRouter();
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -389,11 +743,14 @@ function FlowCanvasInner({
           const found = pool.find((h) => h.id === linkedId);
           linkedLabel = found ? `Trin ${found.stepNo} · ${found.label}` : null;
         }
+        const stepTypeLabel = s.step_type
+          ? stepTypeDefs.find((t) => t.id === s.step_type)?.label ?? s.step_type
+          : null;
         return {
           id: s.id,
           type: "step",
           position: { x: Number(s.pos_x), y: Number(s.pos_y) },
-          data: { step: s, onRename: handleRename, linkedLabel },
+          data: { step: s, onRename: handleRename, linkedLabel, stepTypeLabel },
           deletable: false,
         };
       }),
@@ -403,6 +760,7 @@ function FlowCanvasInner({
       linkedHazardByStep,
       confirmedCcpHazards,
       confirmedOprpHazards,
+      stepTypeDefs,
     ]
   );
 
@@ -518,7 +876,10 @@ function FlowCanvasInner({
       ? confirmedOprpHazards
       : [];
 
+  const showEditPanel = selectedStep?.node_shape === "rektangel";
+
   return (
+    <div className="space-y-6">
     <div className="flex flex-col gap-4 sm:flex-row">
       <div className="flex flex-row flex-wrap gap-2 sm:w-48 sm:flex-none sm:flex-col">
         {showCcpPicker || showOprpPicker ? (
@@ -601,6 +962,18 @@ function FlowCanvasInner({
           <Controls showInteractive={false} />
         </ReactFlow>
       </div>
+    </div>
+
+    {showEditPanel && selectedStep ? (
+      <StepEditPanel
+        diagramId={diagramId}
+        step={selectedStep}
+        attributeDefs={attributeDefs}
+        existingAttrs={stepAttributesByStep[selectedStep.id] ?? []}
+        stepTypeDefs={stepTypeDefs}
+        onClose={() => setSelectedId(null)}
+      />
+    ) : null}
     </div>
   );
 }
