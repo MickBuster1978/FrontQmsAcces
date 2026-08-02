@@ -1,412 +1,614 @@
-// app/(app)/flow/actions.ts
-"use server";
+// components/flow/FlowCanvas.tsx
+"use client";
 
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getOrgContext } from "@/lib/org";
-import { STEP_TYPES, type NodeShape, type StepType } from "@/lib/flow/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import ReactFlow, {
+  BaseEdge,
+  Background,
+  ConnectionMode,
+  Controls,
+  EdgeLabelRenderer,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlowProvider,
+  getStraightPath,
+  useReactFlow,
+  type Connection,
+  type Edge,
+  type EdgeProps,
+  type Node,
+  type NodeProps,
+  useEdgesState,
+  useNodesState,
+} from "reactflow";
+import "reactflow/dist/style.css";
+import {
+  NODE_SHAPE_LABELS,
+  NODE_SHAPES,
+  STEP_TYPE_LABELS,
+  type NodeShape,
+  type ProcessEdge,
+  type ProcessStep,
+} from "@/lib/flow/types";
+import {
+  createEdge,
+  createStepQuick,
+  deleteEdge,
+  linkHazard,
+  renameStep,
+  saveStepPosition,
+} from "@/app/(app)/flow/actions";
+
+export type ConfirmedHazardOption = {
+  id: string;
+  label: string;
+  stepNo: number;
+};
+
+const SHAPE_COLOR: Record<NodeShape, string> = {
+  cirkel: "#DCEEE3",
+  rektangel: "#DCE6F0",
+  kvadrat: "#FFFFFF",
+  rombe: "#F3EEE3",
+  trekant_oprp: "#F4E2CE",
+  trekant_ccp: "#A8321C",
+};
+
+const SHAPE_TEXT_LIGHT: Record<NodeShape, boolean> = {
+  cirkel: false,
+  rektangel: false,
+  kvadrat: false,
+  rombe: false,
+  trekant_oprp: false,
+  trekant_ccp: true,
+};
+
+type StepNodeData = {
+  step: ProcessStep;
+  onRename: (stepId: string, newName: string) => void;
+  linkedLabel: string | null;
+};
 
 /**
- * Opret nyt flowdiagram og hop direkte ind i det.
+ * Fire forbindelsespunkter – top/højre/bund/venstre. ÉT punkt pr.
+ * side. Kombineret med connectionMode={ConnectionMode.Loose} på
+ * <ReactFlow>, som tillader forbindelser mellem alle punkter uanset
+ * type – den dokumenterede løsning til "forbind fra alle sider".
  */
-export async function createDiagram(formData: FormData) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) redirect("/login");
+function FourSideHandles() {
+  const sides = [
+    { pos: Position.Top, id: "top" },
+    { pos: Position.Right, id: "right" },
+    { pos: Position.Bottom, id: "bottom" },
+    { pos: Position.Left, id: "left" },
+  ] as const;
 
-  const name = String(formData.get("name") ?? "").trim();
-  if (name.length < 2) {
-    redirect("/flow?fejl=navn");
-  }
+  const handleCls =
+    "!h-3 !w-3 !rounded-none !border-2 !border-raw !bg-yellow-400";
 
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("flow_diagrams")
-    .insert({ org_id: ctx.orgId, name })
-    .select("id")
-    .single();
-
-  if (error) {
-    redirect(error.code === "23505" ? "/flow?fejl=findes" : "/flow?fejl=ukendt");
-  }
-
-  revalidatePath("/flow");
-  redirect(`/flow/${data.id}`);
-}
-
-/**
- * Slet et diagram (og via cascade: alle trin, kanter og attributter).
- */
-export async function deleteDiagram(formData: FormData) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) redirect("/login");
-
-  const id = String(formData.get("id") ?? "");
-  if (!id) redirect("/flow");
-
-  const supabase = createClient();
-  await supabase.from("flow_diagrams").delete().eq("id", id);
-
-  revalidatePath("/flow");
-  redirect("/flow");
-}
-
-/**
- * Opret et procestrin MED den fulde formular (bruges af den ældre
- * /nyt-trin-guide). Beholdt uændret.
- */
-export async function createStep(formData: FormData) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) redirect("/login");
-
-  const diagramId = String(formData.get("diagram_id") ?? "");
-  const stepType = String(formData.get("step_type") ?? "") as StepType;
-  const name = String(formData.get("name") ?? "").trim();
-
-  if (!diagramId) redirect("/flow");
-  if (!STEP_TYPES.includes(stepType)) {
-    redirect(`/flow/${diagramId}/nyt-trin?fejl=type`);
-  }
-  if (name.length < 2) {
-    redirect(`/flow/${diagramId}/nyt-trin?type=${stepType}&fejl=navn`);
-  }
-
-  const tal = (key: string): number | null => {
-    const v = String(formData.get(key) ?? "").trim().replace(",", ".");
-    if (v === "") return null;
-    const n = Number(v);
-    return Number.isNaN(n) ? null : n;
-  };
-  const tekst = (key: string): string | null => {
-    const v = String(formData.get(key) ?? "").trim();
-    return v === "" ? null : v;
-  };
-
-  const supabase = createClient();
-
-  const { data: last } = await supabase
-    .from("process_steps")
-    .select("id, step_no")
-    .eq("diagram_id", diagramId)
-    .order("step_no", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const stepNo = (last?.step_no ?? 0) + 1;
-
-  const { data: step, error: stepError } = await supabase
-    .from("process_steps")
-    .insert({
-      diagram_id: diagramId,
-      org_id: ctx.orgId,
-      step_no: stepNo,
-      name,
-      step_type: stepType,
-      node_shape: "rektangel",
-      location_zone: tekst("location_zone"),
-      product_open: formData.get("product_open") === "on",
-      person_contact: formData.get("person_contact") === "on",
-      temp_target_c: tal("temp_target_c"),
-      temp_tolerance_c: tal("temp_tolerance_c"),
-      max_dwell_min: tal("max_dwell_min"),
-      equipment: tekst("equipment"),
-      responsible_role: tekst("responsible_role"),
-      input_desc: tekst("input_desc"),
-      output_desc: tekst("output_desc"),
-      pos_x: 120,
-      pos_y: 80 + stepNo * 140,
-    })
-    .select("id")
-    .single();
-
-  if (stepError || !step) {
-    redirect(`/flow/${diagramId}/nyt-trin?type=${stepType}&fejl=ukendt`);
-  }
-
-  const { data: defs } = await supabase
-    .from("attribute_definitions")
-    .select("id, value_type")
-    .contains("applies_to", [stepType]);
-
-  const rows: {
-    step_id: string;
-    org_id: string;
-    attr_id: string;
-    value_text: string | null;
-    value_num: number | null;
-    value_bool: boolean | null;
-  }[] = [];
-
-  for (const def of defs ?? []) {
-    const raw = formData.get(`attr_${def.id}`);
-    if (raw === null) {
-      if (def.value_type === "boolean") {
-        rows.push({
-          step_id: step.id,
-          org_id: ctx.orgId,
-          attr_id: def.id,
-          value_text: null,
-          value_num: null,
-          value_bool: false,
-        });
-      }
-      continue;
-    }
-    const v = String(raw).trim();
-    if (def.value_type === "boolean") {
-      rows.push({
-        step_id: step.id,
-        org_id: ctx.orgId,
-        attr_id: def.id,
-        value_text: null,
-        value_num: null,
-        value_bool: v === "on",
-      });
-    } else if (def.value_type === "number") {
-      if (v === "") continue;
-      const n = Number(v.replace(",", "."));
-      if (Number.isNaN(n)) continue;
-      rows.push({
-        step_id: step.id,
-        org_id: ctx.orgId,
-        attr_id: def.id,
-        value_text: null,
-        value_num: n,
-        value_bool: null,
-      });
-    } else {
-      if (v === "") continue;
-      rows.push({
-        step_id: step.id,
-        org_id: ctx.orgId,
-        attr_id: def.id,
-        value_text: v,
-        value_num: null,
-        value_bool: null,
-      });
-    }
-  }
-
-  if (rows.length > 0) {
-    await supabase.from("step_attributes").insert(rows);
-  }
-
-  if (last?.id) {
-    await supabase.from("process_edges").insert({
-      diagram_id: diagramId,
-      org_id: ctx.orgId,
-      from_step: last.id,
-      to_step: step.id,
-    });
-  }
-
-  await supabase
-    .from("flow_diagrams")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", diagramId);
-
-  revalidatePath(`/flow/${diagramId}`);
-  redirect(`/flow/${diagramId}`);
+  return (
+    <>
+      {sides.map(({ pos, id }) => (
+        <Handle
+          key={id}
+          type="source"
+          position={pos}
+          id={id}
+          className={handleCls}
+        />
+      ))}
+    </>
+  );
 }
 
 /**
- * Slet et trin. Kanter til/fra trinnet ryger via cascade.
+ * Flerlinjet, selvvoksende tekstfelt. Enter laver linjeskift (native
+ * textarea-adfærd) – gemmes ved blur. key={name} nulstiller feltet
+ * korrekt når navnet ændres udefra.
  */
-export async function deleteStep(formData: FormData) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) redirect("/login");
+function AutoTextarea({
+  id,
+  name,
+  onRename,
+  align = "left",
+}: {
+  id: string;
+  name: string;
+  onRename: (stepId: string, newName: string) => void;
+  align?: "left" | "center";
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
 
-  const stepId = String(formData.get("step_id") ?? "");
-  const diagramId = String(formData.get("diagram_id") ?? "");
-  if (!stepId || !diagramId) redirect("/flow");
+  const resize = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
 
-  const supabase = createClient();
-  await supabase.from("process_steps").delete().eq("id", stepId);
+  useEffect(() => {
+    resize();
+  }, [resize]);
 
-  await supabase
-    .from("flow_diagrams")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", diagramId);
+  const cls = [
+    "nodrag w-full resize-none overflow-hidden border-none bg-transparent p-0",
+    "text-[12px] font-semibold leading-snug outline-none",
+    align === "center" ? "text-center" : "",
+    "focus:bg-raw focus:px-1 focus:py-0.5",
+  ].join(" ");
 
-  revalidatePath(`/flow/${diagramId}`);
-  redirect(`/flow/${diagramId}`);
+  return (
+    <textarea
+      key={name}
+      ref={ref}
+      defaultValue={name}
+      rows={1}
+      onInput={resize}
+      onBlur={(e) => onRename(id, e.target.value)}
+      className={cls}
+    />
+  );
 }
 
-// ============================================================
-// CANVAS-ACTIONS – kaldes direkte fra klienten, ingen redirects
-// ============================================================
+/** Custom node – renderer efter node_shape. */
+function StepNode({ id, data }: NodeProps<StepNodeData>) {
+  const s = data.step;
+  const shape = s.node_shape;
+  const color = SHAPE_COLOR[shape];
+  const light = SHAPE_TEXT_LIGHT[shape];
 
-/** Gem et trins position når det slippes efter træk */
-export async function saveStepPosition(
-  stepId: string,
-  posX: number,
-  posY: number
-) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) return { ok: false };
+  if (shape === "rektangel") {
+    return (
+      <div className="relative">
+        <FourSideHandles />
+        <div
+          className="w-56 rounded-sm border border-raw-edge shadow-sm"
+          style={{ backgroundColor: color }}
+        >
+          <div className="border-b border-raw-edge/60 px-3 py-1.5">
+            <p className="text-[10px] uppercase tracking-label text-ink-faint">
+              {s.step_no}.{" "}
+              {s.step_type ? STEP_TYPE_LABELS[s.step_type] : "Type ikke sat"}
+            </p>
+          </div>
+          <div className="px-3 py-2">
+            <AutoTextarea id={id} name={s.name} onRename={data.onRename} />
+            <p className="mt-1 text-[12px] text-ink-soft">
+              {s.temp_target_c != null ? `${s.temp_target_c}°C` : "–"}
+              {s.location_zone ? ` · ${s.location_zone}` : ""}
+            </p>
+            <p className="mt-0.5 text-[11px] text-ink-faint">
+              {s.product_open ? "Åbent produkt" : "Lukket produkt"}
+              {s.person_contact ? " · personkontakt" : ""}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("process_steps")
-    .update({ pos_x: posX, pos_y: posY })
-    .eq("id", stepId);
+  if (shape === "cirkel" || shape === "kvadrat") {
+    return (
+      <div className="relative">
+        <FourSideHandles />
+        <div
+          className={`flex min-h-24 w-24 items-center justify-center border border-raw-edge px-2 py-2 text-center shadow-sm ${
+            shape === "cirkel" ? "rounded-full" : ""
+          }`}
+          style={{ backgroundColor: color }}
+        >
+          <AutoTextarea
+            id={id}
+            name={s.name}
+            onRename={data.onRename}
+            align="center"
+          />
+        </div>
+      </div>
+    );
+  }
 
-  return { ok: !error };
+  if (shape === "rombe") {
+    return (
+      <div className="relative">
+        <FourSideHandles />
+        <div className="flex h-32 w-32 items-center justify-center">
+          <div
+            className="flex h-20 w-20 rotate-45 items-center justify-center
+                       border border-raw-edge shadow-sm"
+            style={{ backgroundColor: color }}
+          >
+            <div className="w-16 -rotate-45">
+              <AutoTextarea
+                id={id}
+                name={s.name}
+                onRename={data.onRename}
+                align="center"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex w-28 flex-col items-center">
+      <FourSideHandles />
+      <div
+        style={{
+          width: 0,
+          height: 0,
+          borderLeft: "42px solid transparent",
+          borderRight: "42px solid transparent",
+          borderBottom: `72px solid ${color}`,
+        }}
+      />
+      <p
+        className={`mt-1 w-full text-center text-[11px] font-semibold leading-snug ${
+          light ? "text-ink" : "text-ink"
+        }`}
+      >
+        {data.linkedLabel ?? "Vælg i sidebar →"}
+      </p>
+    </div>
+  );
 }
 
-/**
- * Opret et BART trin ved at slippe en formfigur fra paletten på et
- * tomt sted på canvas. Standardnavn afhænger af formen.
- */
-export async function createStepQuick(
-  diagramId: string,
-  nodeShape: NodeShape,
-  posX: number,
-  posY: number
-) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) return { ok: false as const };
+const nodeTypes = { step: StepNode };
 
-  const supabase = createClient();
+type EdgeData = { onDelete: (edgeId: string) => void };
 
-  const { data: last } = await supabase
-    .from("process_steps")
-    .select("step_no")
-    .eq("diagram_id", diagramId)
-    .order("step_no", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const stepNo = (last?.step_no ?? 0) + 1;
-
-  const NAVNE: Record<NodeShape, string> = {
-    cirkel: "Start",
-    rektangel: "Nyt trin",
-    kvadrat: "Input",
-    rombe: "Output",
-    trekant_oprp: "oPRP",
-    trekant_ccp: "CCP",
-  };
-
-  const { data, error } = await supabase
-    .from("process_steps")
-    .insert({
-      diagram_id: diagramId,
-      org_id: ctx.orgId,
-      step_no: stepNo,
-      name: NAVNE[nodeShape],
-      step_type: null,
-      node_shape: nodeShape,
-      pos_x: posX,
-      pos_y: posY,
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) return { ok: false as const };
-
-  await supabase
-    .from("flow_diagrams")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", diagramId);
-
-  revalidatePath(`/flow/${diagramId}`);
-  return { ok: true as const, stepId: data.id };
-}
-
-/** Omdøb et trin (kaldes ved blur på navnefeltet i boksen) */
-export async function renameStep(
-  stepId: string,
-  diagramId: string,
-  newName: string
-) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) return { ok: false };
-
-  const trimmed = newName.trim();
-  if (trimmed.length === 0) return { ok: false };
-
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("process_steps")
-    .update({ name: trimmed })
-    .eq("id", stepId);
-
-  revalidatePath(`/flow/${diagramId}`);
-  return { ok: !error };
-}
-
-/**
- * Kobl (eller frakobl) en CCP/oPRP-trekant til en bekræftet fare fra
- * risikomodulet. hazardId = null fjerner koblingen.
- */
-export async function linkHazard(
-  stepId: string,
-  diagramId: string,
-  hazardId: string | null
-) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) return { ok: false };
-
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("process_steps")
-    .update({ linked_hazard_id: hazardId })
-    .eq("id", stepId);
-
-  revalidatePath(`/flow/${diagramId}`);
-  return { ok: !error };
-}
-
-/** Opret en kant ved at forbinde to trin på canvas.
- * fromHandle/toHandle = hvilken side (top/right/bottom/left) hver ende
- * sidder på, så forbindelsen bliver siddende dér ved genindlæsning. */
-export async function createEdge(
-  diagramId: string,
-  fromStep: string,
-  toStep: string,
-  fromHandle: string | null,
-  toHandle: string | null
-) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) return { ok: false };
-  if (fromStep === toStep) return { ok: false };
-
-  const supabase = createClient();
-  const { error } = await supabase.from("process_edges").insert({
-    diagram_id: diagramId,
-    org_id: ctx.orgId,
-    from_step: fromStep,
-    to_step: toStep,
-    from_handle: fromHandle,
-    to_handle: toHandle,
+function DeletableEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  markerEnd,
+  style,
+  data,
+}: EdgeProps<EdgeData>) {
+  const [edgePath, labelX, labelY] = getStraightPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
   });
 
-  await supabase
-    .from("flow_diagrams")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", diagramId);
-
-  revalidatePath(`/flow/${diagramId}`);
-  return { ok: !error || error.code === "23505" };
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={style} />
+      <EdgeLabelRenderer>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            data?.onDelete(id);
+          }}
+          title="Slet forbindelse"
+          style={{
+            position: "absolute",
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            pointerEvents: "all",
+          }}
+          className="nodrag nopan flex h-4 w-4 items-center justify-center
+                     rounded-full border border-state-bad bg-raw text-[11px]
+                     leading-none text-state-bad transition-colors
+                     hover:bg-state-bad hover:text-raw"
+        >
+          ×
+        </button>
+      </EdgeLabelRenderer>
+    </>
+  );
 }
 
-/** Slet en kant (× på selve pilen, eller markér + Backspace) */
-export async function deleteEdge(diagramId: string, edgeId: string) {
-  const ctx = await getOrgContext();
-  if (!ctx || !ctx.orgId) return { ok: false };
+const edgeTypes = { deletable: DeletableEdge };
 
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("process_edges")
-    .delete()
-    .eq("id", edgeId);
+function PaletteItem({ shape }: { shape: NodeShape }) {
+  const color = SHAPE_COLOR[shape];
 
-  await supabase
-    .from("flow_diagrams")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", diagramId);
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/aiqms-shape", shape);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      className="flex cursor-grab items-center gap-2 border border-raw-edge
+                 bg-raw px-3 py-2 text-[13px] transition-colors
+                 hover:border-brand active:cursor-grabbing"
+    >
+      <span
+        className="h-4 w-4 flex-none border border-ink/15"
+        style={{ backgroundColor: color }}
+      />
+      {NODE_SHAPE_LABELS[shape]}
+    </div>
+  );
+}
 
-  revalidatePath(`/flow/${diagramId}`);
-  return { ok: !error };
+export type FlowCanvasProps = {
+  diagramId: string;
+  steps: ProcessStep[];
+  edges: ProcessEdge[];
+  linkedHazardByStep: Record<string, string | null>;
+  confirmedCcpHazards: ConfirmedHazardOption[];
+  confirmedOprpHazards: ConfirmedHazardOption[];
+};
+
+function FlowCanvasInner({
+  diagramId,
+  steps,
+  edges,
+  linkedHazardByStep,
+  confirmedCcpHazards,
+  confirmedOprpHazards,
+}: FlowCanvasProps) {
+  const router = useRouter();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const { project } = useReactFlow();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const handleRename = useCallback(
+    async (stepId: string, newName: string) => {
+      const trimmed = newName.trim();
+      if (trimmed.length === 0) {
+        router.refresh();
+        return;
+      }
+      await renameStep(stepId, diagramId, trimmed);
+      router.refresh();
+    },
+    [diagramId, router]
+  );
+
+  const handleDeleteEdge = useCallback(
+    async (edgeId: string) => {
+      await deleteEdge(diagramId, edgeId);
+      router.refresh();
+    },
+    [diagramId, router]
+  );
+
+  const builtNodes: Node<StepNodeData>[] = useMemo(
+    () =>
+      steps.map((s) => {
+        let linkedLabel: string | null = null;
+        const linkedId = linkedHazardByStep[s.id];
+        if (linkedId) {
+          const pool =
+            s.node_shape === "trekant_ccp"
+              ? confirmedCcpHazards
+              : s.node_shape === "trekant_oprp"
+                ? confirmedOprpHazards
+                : [];
+          const found = pool.find((h) => h.id === linkedId);
+          linkedLabel = found ? `Trin ${found.stepNo} · ${found.label}` : null;
+        }
+        return {
+          id: s.id,
+          type: "step",
+          position: { x: Number(s.pos_x), y: Number(s.pos_y) },
+          data: { step: s, onRename: handleRename, linkedLabel },
+          deletable: false,
+        };
+      }),
+    [
+      steps,
+      handleRename,
+      linkedHazardByStep,
+      confirmedCcpHazards,
+      confirmedOprpHazards,
+    ]
+  );
+
+  const builtEdges: Edge[] = useMemo(
+    () =>
+      edges.map((e) => ({
+        id: e.id,
+        type: "deletable",
+        source: e.from_step,
+        target: e.to_step,
+        sourceHandle: e.from_handle ?? undefined,
+        targetHandle: e.to_handle ?? undefined,
+        label: e.label ?? undefined,
+        style: { stroke: "#C9600F", strokeWidth: 1.5 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 18,
+          height: 18,
+          color: "#C9600F",
+        },
+        data: { onDelete: handleDeleteEdge },
+      })),
+    [edges, handleDeleteEdge]
+  );
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(builtNodes);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(builtEdges);
+
+  useEffect(() => {
+    setNodes(builtNodes);
+  }, [builtNodes, setNodes]);
+
+  useEffect(() => {
+    setRfEdges(builtEdges);
+  }, [builtEdges, setRfEdges]);
+
+  const onNodeDragStop = useCallback(
+    async (_: unknown, node: Node) => {
+      await saveStepPosition(node.id, node.position.x, node.position.y);
+    },
+    []
+  );
+
+  const onConnect = useCallback(
+    async (conn: Connection) => {
+      if (!conn.source || !conn.target) return;
+      const res = await createEdge(
+        diagramId,
+        conn.source,
+        conn.target,
+        conn.sourceHandle ?? null,
+        conn.targetHandle ?? null
+      );
+      if (!res.ok) {
+        // Midlertidig, synlig fejlbesked - vi skal vide OM den rammer her,
+        // hvis forbindelser stadig ikke virker efter denne rettelse.
+        window.alert(
+          "Forbindelsen kunne ikke gemmes. Sig til Claude at fejlen ramte createEdge/serveren, ikke selve trækket."
+        );
+        return;
+      }
+      router.refresh();
+    },
+    [diagramId, router]
+  );
+
+  const onEdgesDelete = useCallback(
+    async (deleted: Edge[]) => {
+      for (const e of deleted) {
+        await deleteEdge(diagramId, e.id);
+      }
+      router.refresh();
+    },
+    [diagramId, router]
+  );
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onDrop = useCallback(
+    async (event: React.DragEvent) => {
+      event.preventDefault();
+      const shape = event.dataTransfer.getData(
+        "application/aiqms-shape"
+      ) as NodeShape;
+      if (!shape || !wrapperRef.current) return;
+
+      const bounds = wrapperRef.current.getBoundingClientRect();
+      const position = project({
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      });
+
+      const res = await createStepQuick(
+        diagramId,
+        shape,
+        position.x,
+        position.y
+      );
+      if (res.ok) router.refresh();
+    },
+    [diagramId, project, router]
+  );
+
+  const selectedStep = steps.find((s) => s.id === selectedId) ?? null;
+  const showCcpPicker = selectedStep?.node_shape === "trekant_ccp";
+  const showOprpPicker = selectedStep?.node_shape === "trekant_oprp";
+  const pickerOptions = showCcpPicker
+    ? confirmedCcpHazards
+    : showOprpPicker
+      ? confirmedOprpHazards
+      : [];
+
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row">
+      <div className="flex flex-row flex-wrap gap-2 sm:w-48 sm:flex-none sm:flex-col">
+        {showCcpPicker || showOprpPicker ? (
+          <div>
+            <p className="label">
+              Vælg {showCcpPicker ? "CCP" : "oPRP"}
+            </p>
+            <select
+              value={
+                selectedStep ? linkedHazardByStep[selectedStep.id] ?? "" : ""
+              }
+              onChange={async (e) => {
+                if (!selectedStep) return;
+                await linkHazard(
+                  selectedStep.id,
+                  diagramId,
+                  e.target.value || null
+                );
+                router.refresh();
+              }}
+              className="mt-2 w-full rounded-sm border border-raw-edge bg-raw
+                         px-2 py-1.5 text-[13px] outline-none focus:border-brand"
+            >
+              <option value="">– Ikke koblet –</option>
+              {pickerOptions.map((h) => (
+                <option key={h.id} value={h.id}>
+                  Trin {h.stepNo} · {h.label}
+                </option>
+              ))}
+            </select>
+            {pickerOptions.length === 0 ? (
+              <p className="mt-2 text-[12px] text-ink-faint">
+                Ingen bekræftede {showCcpPicker ? "CCP'er" : "oPRP'er"} endnu.
+                Opret dem først i risikomodulet.
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setSelectedId(null)}
+              className="mt-3 text-[12px] text-ink-faint underline"
+            >
+              ← Tilbage til paletten
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="label hidden w-full sm:block">Træk ud</p>
+            {NODE_SHAPES.map((shape) => (
+              <PaletteItem key={shape} shape={shape} />
+            ))}
+          </>
+        )}
+      </div>
+
+      <div
+        ref={wrapperRef}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        className="h-[560px] flex-1 border border-raw-edge bg-raw-deep"
+      >
+        <ReactFlow
+          nodes={nodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeDragStop={onNodeDragStop}
+          onNodeClick={(_, node) => setSelectedId(node.id)}
+          onPaneClick={() => setSelectedId(null)}
+          onConnect={onConnect}
+          connectionMode={ConnectionMode.Loose}
+          onEdgesDelete={onEdgesDelete}
+          deleteKeyCode={["Backspace", "Delete"]}
+          fitView
+          fitViewOptions={{ padding: 0.25 }}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background color="#DFD6C4" gap={20} size={1.5} />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </div>
+    </div>
+  );
+}
+
+export default function FlowCanvas(props: FlowCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <FlowCanvasInner {...props} />
+    </ReactFlowProvider>
+  );
 }
