@@ -358,11 +358,15 @@ export async function linkHazard(
   return { ok: !error };
 }
 
-/** Opret en kant ved at forbinde to trin på canvas */
+/** Opret en kant ved at forbinde to trin på canvas.
+ * fromHandle/toHandle = hvilken side (top/right/bottom/left) hver ende
+ * sidder på, så forbindelsen bliver siddende dér ved genindlæsning. */
 export async function createEdge(
   diagramId: string,
   fromStep: string,
-  toStep: string
+  toStep: string,
+  fromHandle: string | null,
+  toHandle: string | null
 ) {
   const ctx = await getOrgContext();
   if (!ctx || !ctx.orgId) return { ok: false };
@@ -374,6 +378,8 @@ export async function createEdge(
     org_id: ctx.orgId,
     from_step: fromStep,
     to_step: toStep,
+    from_handle: fromHandle,
+    to_handle: toHandle,
   });
 
   await supabase
