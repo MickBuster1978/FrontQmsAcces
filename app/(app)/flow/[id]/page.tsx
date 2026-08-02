@@ -6,11 +6,13 @@ import FlowCanvas, {
   type ConfirmedHazardOption,
 } from "@/components/flow/FlowCanvas";
 import { deleteDiagram, saveDiagramMeta } from "../actions";
+import { registrerDiagramSomDokument } from "@/app/(app)/dokumenter/actions";
 import type {
   FlowDiagram,
   ProcessEdge,
   ProcessStep,
 } from "@/lib/flow/types";
+import type { DocumentKategori } from "@/lib/dokumenter/types";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("da-DK", {
@@ -107,6 +109,24 @@ export default async function DiagramPage({
 
   const confirmedCcpHazards = toOptions(ccpRows as HazardJoinRow[] | null);
   const confirmedOprpHazards = toOptions(oprpRows as HazardJoinRow[] | null);
+
+  // Til "Registrer i dokumentstyring": kategorier at vælge imellem,
+  // og evt. allerede eksisterende registrering af DETTE diagram.
+  const { data: kategoriRows } = await supabase
+    .from("document_kategorier")
+    .select("*")
+    .order("sort_order");
+  const kategorier = (kategoriRows ?? []) as DocumentKategori[];
+
+  const { data: linkedDokRow } = await supabase
+    .from("dokumenter")
+    .select("id, kategori_id")
+    .eq("diagram_id", d.id)
+    .maybeSingle();
+  const linkedDokument = linkedDokRow as {
+    id: string;
+    kategori_id: string;
+  } | null;
 
   return (
     <main className="mx-auto max-w-6xl px-6 pb-20 pt-8">
@@ -241,6 +261,60 @@ export default async function DiagramPage({
           </div>
           <button type="submit" className="btn mt-6">
             Gem diagram
+          </button>
+        </form>
+      </section>
+
+      {/* Registrer i dokumentstyring */}
+      <section className="mt-12">
+        <div className="rule-double pb-3">
+          <h2 className="label">Dokumentstyring</h2>
+          <p className="mt-1 text-[13px] text-ink-faint">
+            Registrer diagrammet som dokument – titel, version og datoer
+            hentes automatisk fra "Gem diagram" ovenfor.
+          </p>
+        </div>
+
+        {linkedDokument ? (
+          <p className="mt-4 text-[14px]">
+            Allerede registreret –{" "}
+            <Link
+              href={`/dokumenter/${linkedDokument.kategori_id}`}
+              className="text-brand underline"
+            >
+              se det i dokumentstyring
+            </Link>
+            . Registrer igen for at opdatere titel, version og datoer.
+          </p>
+        ) : null}
+
+        <form
+          action={registrerDiagramSomDokument}
+          className="mt-4 flex flex-wrap items-end gap-3"
+        >
+          <input type="hidden" name="diagram_id" value={d.id} />
+          <div>
+            <label htmlFor="kategori_id" className="label">
+              Kategori
+            </label>
+            <select
+              id="kategori_id"
+              name="kategori_id"
+              defaultValue={linkedDokument?.kategori_id ?? ""}
+              className={dateInputCls}
+            >
+              <option value="" disabled>
+                Vælg …
+              </option>
+              {kategorier.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="submit" className="btn">
+            {linkedDokument ? "Opdatér registrering" : "Registrer i dokumentstyring"}
           </button>
         </form>
       </section>
