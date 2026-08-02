@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import ReactFlow, {
   BaseEdge,
   Background,
+  ConnectionMode,
   Controls,
   EdgeLabelRenderer,
   Handle,
@@ -71,10 +72,10 @@ type StepNodeData = {
 };
 
 /**
- * Fire forbindelsespunkter – top/højre/bund/venstre – hver med
- * source OG target stablet samme sted. Kombineret med
- * isValidConnection={() => true} på selve <ReactFlow>, som fjerner
- * standard-kravet om at en forbindelse skal gå source->target.
+ * Fire forbindelsespunkter – top/højre/bund/venstre. ÉT punkt pr.
+ * side. Kombineret med connectionMode={ConnectionMode.Loose} på
+ * <ReactFlow>, som tillader forbindelser mellem alle punkter uanset
+ * type – den dokumenterede løsning til "forbind fra alle sider".
  */
 function FourSideHandles() {
   const sides = [
@@ -90,20 +91,13 @@ function FourSideHandles() {
   return (
     <>
       {sides.map(({ pos, id }) => (
-        <div key={id}>
-          <Handle
-            type="target"
-            position={pos}
-            id={`${id}-target`}
-            className={handleCls}
-          />
-          <Handle
-            type="source"
-            position={pos}
-            id={`${id}-source`}
-            className={handleCls}
-          />
-        </div>
+        <Handle
+          key={id}
+          type="source"
+          position={pos}
+          id={id}
+          className={handleCls}
+        />
       ))}
     </>
   );
@@ -588,7 +582,7 @@ function FlowCanvasInner({
           onNodeClick={(_, node) => setSelectedId(node.id)}
           onPaneClick={() => setSelectedId(null)}
           onConnect={onConnect}
-          isValidConnection={() => true}
+          connectionMode={ConnectionMode.Loose}
           onEdgesDelete={onEdgesDelete}
           deleteKeyCode={["Backspace", "Delete"]}
           fitView
