@@ -1,6 +1,7 @@
 // app/(app)/flow/actions.ts
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -262,6 +263,156 @@ export async function deleteStep(formData: FormData) {
 
   revalidatePath(`/flow/${diagramId}`);
   redirect(`/flow/${diagramId}`);
+}
+
+/**
+ * Gem et trins fulde detaljer fra redigeringspanelet på canvas:
+ * kernefelter (type, zone, temp, udstyr, ansvarlig, input/output,
+ * åbent/kontakt) samt de type-specifikke attributter. Attributterne
+ * slettes og genindsættes ved hvert gem - det er enklest og korrekt,
+ * også når typen skiftes til noget med andre relevante felter.
+ * Sendes som almindeligt formular-submit (ikke klient-kald), så
+ * redirect() giver et rent, fuldt genindlæst canvas bagefter.
+ */
+export async function updateStepDetails(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const stepId = String(formData.get("step_id") ?? "");
+  const diagramId = String(formData.get("diagram_id") ?? "");
+  if (!stepId || !diagramId) redirect("/flow");
+
+  // Typen kan nu være en af de 15 delte starttyper ELLER en type
+  // organisationen selv har oprettet (fx "svejsning") - der valideres
+  // ikke længere mod en fast liste her. Den nye foreign key på
+  // process_steps.step_type er sikkerhedsnettet, ikke denne funktion.
+  const stepTypeRaw = String(formData.get("step_type") ?? "").trim();
+  const stepType = stepTypeRaw === "" ? null : stepTypeRaw;
+
+  const tal = (key: string): number | null => {
+    const v = String(formData.get(key) ?? "").trim().replace(",", ".");
+    if (v === "") return null;
+    const n = Number(v);
+    return Number.isNaN(n) ? null : n;
+  };
+  const tekst = (key: string): string | null => {
+    const v = String(formData.get(key) ?? "").trim();
+    return v === "" ? null : v;
+  };
+
+  const supabase = createClient();
+
+  await supabase
+    .from("process_steps")
+    .update({
+      step_type: stepType,
+      location_zone: tekst("location_zone"),
+      temp_target_c: tal("temp_target_c"),
+      temp_tolerance_c: tal("temp_tolerance_c"),
+      max_dwell_min: tal("max_dwell_min"),
+      product_open: formData.get("product_open") === "on",
+      person_contact: formData.get("person_contact") === "on",
+      equipment: tekst("equipment"),
+      responsible_role: tekst("responsible_role"),
+      input_desc: tekst("input_desc"),
+      output_desc: tekst("output_desc"),
+    })
+    .eq("id", stepId);
+
+  // Attributter matcher kun den VALGTE type - slet og genindsæt,
+  // så gamle værdier fra en tidligere type ikke bliver hængende.
+  await supabase.from("step_attributes").delete().eq("step_id", stepId);
+
+  if (stepType) {
+    const { data: defs } = await supabase
+      .from("attribute_definitions")
+      .select("id, value_type")
+      .contains("applies_to", [stepType]);
+
+    const rows: {
+      step_id: string;
+      org_id: string;
+      attr_id: string;
+      value_text: string | null;
+      value_num: number | null;
+      value_bool: boolean | null;
+    }[] = [];
+
+    for (const def of defs ?? []) {
+      const raw = formData.get(`attr_${def.id}`);
+      if (def.value_type === "boolean") {
+        rows.push({
+          step_id: stepId,
+          org_id: ctx.orgId,
+          attr_id: def.id,
+          value_text: null,
+          value_num: null,
+          value_bool: raw === "on",
+        });
+        continue;
+      }
+      if (raw === null) continue;
+      const v = String(raw).trim();
+      if (v === "") continue;
+      if (def.value_type === "number") {
+        const n = Number(v.replace(",", "."));
+        if (Number.isNaN(n)) continue;
+        rows.push({
+          step_id: stepId,
+          org_id: ctx.orgId,
+          attr_id: def.id,
+          value_text: null,
+          value_num: n,
+          value_bool: null,
+        });
+      } else {
+        rows.push({
+          step_id: stepId,
+          org_id: ctx.orgId,
+          attr_id: def.id,
+          value_text: v,
+          value_num: null,
+          value_bool: null,
+        });
+      }
+    }
+
+    if (rows.length > 0) {
+      await supabase.from("step_attributes").insert(rows);
+    }
+  }
+
+  revalidatePath(`/flow/${diagramId}`);
+  redirect(`/flow/${diagramId}`);
+}
+
+/**
+ * Opret en trin-type der er specifik for jeres virksomhed (fx
+ * "Svejsning" for en metalvirksomhed) - kaldes direkte fra
+ * redigeringspanelet, ikke via formular-submit. De 15 delte
+ * starttyper rører den ikke; dette laver kun jeres EGNE tilføjelser.
+ */
+export async function createStepType(label: string) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false as const };
+
+  const trimmed = label.trim();
+  if (trimmed.length < 2) return { ok: false as const };
+
+  const supabase = createClient();
+  const id = randomUUID();
+
+  const { error } = await supabase.from("step_type_definitions").insert({
+    id,
+    org_id: ctx.orgId,
+    label: trimmed,
+    sort_order: 500,
+  });
+
+  if (error) return { ok: false as const };
+
+  revalidatePath("/flow");
+  return { ok: true as const, id };
 }
 
 // ============================================================
