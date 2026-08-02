@@ -314,7 +314,7 @@ export async function createStepQuick(
   return { ok: true as const, stepId: data.id };
 }
 
-/** Omdøb et trin (kaldes ved blur/Enter på navnefeltet i boksen) */
+/** Omdøb et trin (kaldes ved blur på navnefeltet i boksen) */
 export async function renameStep(
   stepId: string,
   diagramId: string,
@@ -330,6 +330,28 @@ export async function renameStep(
   const { error } = await supabase
     .from("process_steps")
     .update({ name: trimmed })
+    .eq("id", stepId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  return { ok: !error };
+}
+
+/**
+ * Kobl (eller frakobl) en CCP/oPRP-trekant til en bekræftet fare fra
+ * risikomodulet. hazardId = null fjerner koblingen.
+ */
+export async function linkHazard(
+  stepId: string,
+  diagramId: string,
+  hazardId: string | null
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("process_steps")
+    .update({ linked_hazard_id: hazardId })
     .eq("id", stepId);
 
   revalidatePath(`/flow/${diagramId}`);
