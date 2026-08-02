@@ -119,9 +119,17 @@ export default async function DiagramPage({
               {d.name}
             </h1>
           </div>
-          <p className="text-[14px] text-ink-faint">
-            Oprettet {formatDate(d.created_at)}
-          </p>
+          <div className="flex items-center gap-4">
+            <p className="text-[14px] text-ink-faint">
+              Oprettet {formatDate(d.created_at)}
+            </p>
+            <Link
+              href={`/flow/${d.id}/print`}
+              className="text-[14px] text-brand underline"
+            >
+              Udskriv / PDF
+            </Link>
+          </div>
         </div>
       </header>
 
