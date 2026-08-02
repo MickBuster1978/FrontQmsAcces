@@ -1,5 +1,5 @@
 // lib/flow/types.ts
-// Typer der spejler supabase/migrations/002_flow_model.sql + 008_node_shape.sql.
+// Typer der spejler supabase/migrations/002_flow_model.sql + 008/009.
 
 export const STEP_TYPES = [
   "modtagelse",
@@ -40,13 +40,23 @@ export const STEP_TYPE_LABELS: Record<StepType, string> = {
 };
 
 /** Visuel form på canvas – uafhængig af step_type */
-export const NODE_SHAPES = ["rektangel", "rombe", "cirkel"] as const;
+export const NODE_SHAPES = [
+  "cirkel",
+  "rektangel",
+  "kvadrat",
+  "rombe",
+  "trekant_oprp",
+  "trekant_ccp",
+] as const;
 export type NodeShape = (typeof NODE_SHAPES)[number];
 
 export const NODE_SHAPE_LABELS: Record<NodeShape, string> = {
+  cirkel: "Start",
   rektangel: "Procestrin",
-  rombe: "Beslutning",
-  cirkel: "Start/slut",
+  kvadrat: "Input",
+  rombe: "Output",
+  trekant_oprp: "oPRP",
+  trekant_ccp: "CCP",
 };
 
 export type DiagramStatus = "kladde" | "aktiv" | "arkiveret";
@@ -67,7 +77,7 @@ export type ProcessStep = {
   org_id: string;
   step_no: number;
   name: string;
-  /** Null for rombe/cirkel-noder – de er ikke en fysisk proces-type */
+  /** Null for ikke-rektangel-noder – de er ikke en fysisk proces-type */
   step_type: StepType | null;
   node_shape: NodeShape;
   location_zone: string | null;
