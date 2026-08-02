@@ -70,7 +70,8 @@ export async function uploadDokument(formData: FormData) {
   redirect(`/dokumenter/${kategoriId}`);
 }
 
-/** Slet et dokument – fjerner filen fra Storage (hvis der er en) og rækken */
+/**
+ * Slet et dokument – fjerner filen fra Storage (hvis der er en) og rækken */
 export async function sletDokument(formData: FormData) {
   const ctx = await getOrgContext();
   if (!ctx || !ctx.orgId) redirect("/login");
@@ -90,4 +91,61 @@ export async function sletDokument(formData: FormData) {
   revalidatePath(`/dokumenter/${kategoriId}`);
   revalidatePath("/dokumenter");
   redirect(`/dokumenter/${kategoriId}`);
+}
+
+/**
+ * Registrer (eller opdatér) et flowdiagram som dokument. Titel,
+ * version og styringsdatoer kopieres direkte fra diagrammet - de er
+ * allerede sat via "Gem diagram" på selve flow-siden, så de skal
+ * ikke tastes ind igen. Er diagrammet allerede registreret, opdateres
+ * den eksisterende række i stedet for at oprette en ny (så gentagne
+ * klik ikke skaber dubletter, kun opdaterer).
+ */
+export async function registrerDiagramSomDokument(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const diagramId = String(formData.get("diagram_id") ?? "");
+  const kategoriId = String(formData.get("kategori_id") ?? "");
+  if (!diagramId) redirect("/flow");
+  if (!kategoriId) redirect(`/flow/${diagramId}?fejl=kategori`);
+
+  const supabase = createClient();
+
+  const { data: diagram } = await supabase
+    .from("flow_diagrams")
+    .select("*")
+    .eq("id", diagramId)
+    .maybeSingle();
+
+  if (!diagram) redirect(`/flow/${diagramId}`);
+
+  const { data: eksisterende } = await supabase
+    .from("dokumenter")
+    .select("id")
+    .eq("diagram_id", diagramId)
+    .maybeSingle();
+
+  const felter = {
+    org_id: ctx.orgId,
+    kategori_id: kategoriId,
+    titel: diagram.name,
+    version: String(diagram.version ?? 1),
+    status: "gaeldende" as const,
+    diagram_id: diagramId,
+    oprettet_dato: diagram.oprettet_dato,
+    gennemgaaet_dato: diagram.verificeret_dato,
+    udloeber_dato: diagram.fornyelse_dato,
+  };
+
+  if (eksisterende) {
+    await supabase.from("dokumenter").update(felter).eq("id", eksisterende.id);
+  } else {
+    await supabase.from("dokumenter").insert(felter);
+  }
+
+  revalidatePath(`/flow/${diagramId}`);
+  revalidatePath("/dokumenter");
+  revalidatePath(`/dokumenter/${kategoriId}`);
+  redirect(`/flow/${diagramId}`);
 }
