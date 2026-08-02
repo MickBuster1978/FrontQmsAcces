@@ -9,6 +9,9 @@ import {
 } from "@/lib/dokumenter/types";
 import { sletDokument, uploadDokument } from "../actions";
 
+/** Lokal udvidelse med diagram_id, uden at ændre den delte Dokument-type */
+type DokumentMedDiagram = Dokument & { diagram_id: string | null };
+
 const FEJL_TEKST: Record<string, string> = {
   titel: "Giv dokumentet en titel (mindst 2 tegn).",
   upload: "Filen kunne ikke uploades. Prøv igen.",
@@ -52,7 +55,7 @@ export default async function DokumentKategoriPage({
     .eq("kategori_id", k.id)
     .order("titel");
 
-  const dokumentList = (dokumenter ?? []) as Dokument[];
+  const dokumentList = (dokumenter ?? []) as DokumentMedDiagram[];
 
   // Midlertidige download-links – genereres ved hvert besøg, udløber efter 1 time
   const dokumenterMedUrl = await Promise.all(
@@ -103,7 +106,14 @@ export default async function DokumentKategoriPage({
                 </p>
               </div>
               <div className="flex items-center gap-4">
-                {doc.url ? (
+                {doc.diagram_id ? (
+                  <Link
+                    href={`/flow/${doc.diagram_id}/print`}
+                    className="text-[13px] text-brand underline"
+                  >
+                    Se diagram
+                  </Link>
+                ) : doc.url ? (
                   <a
                     href={doc.url}
                     target="_blank"
