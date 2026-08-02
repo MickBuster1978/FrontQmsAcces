@@ -67,15 +67,14 @@ const SHAPE_TEXT_LIGHT: Record<NodeShape, boolean> = {
 type StepNodeData = {
   step: ProcessStep;
   onRename: (stepId: string, newName: string) => void;
-  /** Kun for trekant_ccp/trekant_oprp – label på den koblede, bekræftede fare */
   linkedLabel: string | null;
 };
 
 /**
- * Fire forbindelsespunkter – top/højre/bund/venstre. ÉT element pr.
- * side (ikke to stablede), gjort tovejs via isConnectableStart/End –
- * det er den robuste metode, i modsætning til at stable en source-
- * og target-handle oven på hinanden, som er upålidelig for museklik.
+ * Fire forbindelsespunkter – top/højre/bund/venstre – hver med
+ * source OG target stablet samme sted. Kombineret med
+ * isValidConnection={() => true} på selve <ReactFlow>, som fjerner
+ * standard-kravet om at en forbindelse skal gå source->target.
  */
 function FourSideHandles() {
   const sides = [
@@ -91,15 +90,20 @@ function FourSideHandles() {
   return (
     <>
       {sides.map(({ pos, id }) => (
-        <Handle
-          key={id}
-          type="source"
-          position={pos}
-          id={id}
-          isConnectableStart
-          isConnectableEnd
-          className={handleCls}
-        />
+        <div key={id}>
+          <Handle
+            type="target"
+            position={pos}
+            id={`${id}-target`}
+            className={handleCls}
+          />
+          <Handle
+            type="source"
+            position={pos}
+            id={`${id}-source`}
+            className={handleCls}
+          />
+        </div>
       ))}
     </>
   );
@@ -236,8 +240,6 @@ function StepNode({ id, data }: NodeProps<StepNodeData>) {
     );
   }
 
-  // trekant_oprp / trekant_ccp – ikke fritekst. Viser den koblede,
-  // bekræftede fare fra risikomodulet, valgt via sidebaren.
   return (
     <div className="relative flex w-28 flex-col items-center">
       <FourSideHandles />
@@ -452,7 +454,15 @@ function FlowCanvasInner({
     async (conn: Connection) => {
       if (!conn.source || !conn.target) return;
       const res = await createEdge(diagramId, conn.source, conn.target);
-      if (res.ok) router.refresh();
+      if (!res.ok) {
+        // Midlertidig, synlig fejlbesked - vi skal vide OM den rammer her,
+        // hvis forbindelser stadig ikke virker efter denne rettelse.
+        window.alert(
+          "Forbindelsen kunne ikke gemmes. Sig til Claude at fejlen ramte createEdge/serveren, ikke selve trækket."
+        );
+        return;
+      }
+      router.refresh();
     },
     [diagramId, router]
   );
@@ -508,7 +518,6 @@ function FlowCanvasInner({
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row">
-      {/* Sidebar: palet, eller CCP/oPRP-vælger når en trekant er valgt */}
       <div className="flex flex-row flex-wrap gap-2 sm:w-48 sm:flex-none sm:flex-col">
         {showCcpPicker || showOprpPicker ? (
           <div>
@@ -579,6 +588,7 @@ function FlowCanvasInner({
           onNodeClick={(_, node) => setSelectedId(node.id)}
           onPaneClick={() => setSelectedId(null)}
           onConnect={onConnect}
+          isValidConnection={() => true}
           onEdgesDelete={onEdgesDelete}
           deleteKeyCode={["Backspace", "Delete"]}
           fitView
