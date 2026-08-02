@@ -24,6 +24,8 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import {
+  NODE_SHAPE_LABELS,
+  NODE_SHAPES,
   STEP_TYPE_LABELS,
   type NodeShape,
   type ProcessEdge,
@@ -37,6 +39,29 @@ import {
   saveStepPosition,
 } from "@/app/(app)/flow/actions";
 
+/**
+ * Farve pr. form. Rombens farve stod ikke specificeret – den bruger
+ * derfor systemets neutrale standardfarve i stedet for at gætte.
+ */
+const SHAPE_COLOR: Record<NodeShape, string> = {
+  cirkel: "#DCEEE3", // lysgrøn
+  rektangel: "#DCE6F0", // lysblå
+  kvadrat: "#FFFFFF", // hvid
+  rombe: "#F3EEE3", // neutral (uspecificeret)
+  trekant_oprp: "#F4E2CE", // lysorange
+  trekant_ccp: "#A8321C", // rød
+};
+
+/** Trekant-noden CCP har lys tekst (rød baggrund), resten mørk tekst */
+const SHAPE_TEXT_LIGHT: Record<NodeShape, boolean> = {
+  cirkel: false,
+  rektangel: false,
+  kvadrat: false,
+  rombe: false,
+  trekant_oprp: false,
+  trekant_ccp: true,
+};
+
 type StepNodeData = {
   step: ProcessStep;
   onRename: (stepId: string, newName: string) => void;
@@ -44,7 +69,7 @@ type StepNodeData = {
 
 /** Fire forbindelsespunkter – top/højre/bund/venstre – hver med
  * source OG target stablet samme sted, så man kan forbinde fra
- * og til alle sider, ikke kun top-til-bund. */
+ * og til alle sider. */
 function FourSideHandles() {
   const sides = [
     { pos: Position.Top, id: "top" },
@@ -78,60 +103,28 @@ function FourSideHandles() {
   );
 }
 
-/** Formen omkring nodens indhold – rektangel/rombe/cirkel */
-function ShapeBody({
-  shape,
-  children,
-}: {
-  shape: NodeShape;
-  children: React.ReactNode;
-}) {
-  if (shape === "rombe") {
-    return (
-      <div className="flex h-32 w-32 items-center justify-center">
-        <div className="flex h-20 w-20 rotate-45 items-center justify-center border border-raw-edge bg-raw-deep shadow-sm">
-          <div className="w-16 -rotate-45 text-center text-[12px] leading-snug">
-            {children}
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (shape === "cirkel") {
-    return (
-      <div className="flex h-28 w-28 items-center justify-center rounded-full border border-raw-edge bg-raw-deep text-center shadow-sm">
-        <div className="px-2 text-[12px] leading-snug">{children}</div>
-      </div>
-    );
-  }
-  return (
-    <div className="w-56 rounded-sm border border-raw-edge bg-raw-deep shadow-sm">
-      {children}
-    </div>
-  );
-}
-
-/** Inputfelt til navnet – findes i alle tre former, gemmer ved blur/Enter.
- * key={s.name} tvinger feltet til at "nulstille" sig når navnet ændres
- * udefra (fx efter et refresh), så det ikke viser en gammel tekst. */
+/** Inputfelt til navnet. key={name} nulstiller feltet korrekt når
+ * navnet ændres udefra (fx efter et refresh). */
 function NameField({
   id,
   name,
-  shape,
   onRename,
+  align = "left",
+  light = false,
 }: {
   id: string;
   name: string;
-  shape: NodeShape;
   onRename: (stepId: string, newName: string) => void;
+  align?: "left" | "center";
+  light?: boolean;
 }) {
-  const base =
-    "nodrag w-full border-none bg-transparent p-0 outline-none " +
-    "focus:bg-raw focus:px-1 focus:py-0.5";
-  const cls =
-    shape === "rektangel"
-      ? `${base} text-[14px] font-semibold leading-snug`
-      : `${base} text-center text-[12px] font-semibold leading-snug`;
+  const cls = [
+    "nodrag w-full border-none bg-transparent p-0 outline-none",
+    "text-[12px] font-semibold leading-snug",
+    align === "center" ? "text-center" : "",
+    light ? "text-raw placeholder:text-raw/70" : "text-ink",
+    "focus:bg-raw focus:px-1 focus:py-0.5 focus:text-ink",
+  ].join(" ");
 
   return (
     <input
@@ -146,59 +139,140 @@ function NameField({
   );
 }
 
-/** Custom node. Rektangel viser fulde fakta under navnet; rombe/cirkel
- * viser kun navnet. Navnet er altid skrivbart direkte i boksen. */
+/** Custom node – renderer efter node_shape. */
 function StepNode({ id, data }: NodeProps<StepNodeData>) {
   const s = data.step;
   const shape = s.node_shape;
+  const color = SHAPE_COLOR[shape];
+  const light = SHAPE_TEXT_LIGHT[shape];
 
-  return (
-    <div className="relative">
-      <FourSideHandles />
+  if (shape === "rektangel") {
+    return (
+      <div className="relative">
+        <FourSideHandles />
+        <div
+          className="w-56 rounded-sm border border-raw-edge shadow-sm"
+          style={{ backgroundColor: color }}
+        >
+          <div className="border-b border-raw-edge/60 px-3 py-1.5">
+            <p className="text-[10px] uppercase tracking-label text-ink-faint">
+              {s.step_no}.{" "}
+              {s.step_type ? STEP_TYPE_LABELS[s.step_type] : "Type ikke sat"}
+            </p>
+          </div>
+          <div className="px-3 py-2">
+            <NameField id={id} name={s.name} onRename={data.onRename} />
+            <p className="mt-1 text-[12px] text-ink-soft">
+              {s.temp_target_c != null ? `${s.temp_target_c}°C` : "–"}
+              {s.location_zone ? ` · ${s.location_zone}` : ""}
+            </p>
+            <p className="mt-0.5 text-[11px] text-ink-faint">
+              {s.product_open ? "Åbent produkt" : "Lukket produkt"}
+              {s.person_contact ? " · personkontakt" : ""}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-      <ShapeBody shape={shape}>
-        {shape === "rektangel" ? (
-          <>
-            <div className="border-b border-raw-edge px-3 py-1.5">
-              <p className="text-[10px] uppercase tracking-label text-ink-faint">
-                {s.step_no}.{" "}
-                {s.step_type ? STEP_TYPE_LABELS[s.step_type] : "Type ikke sat"}
-              </p>
-            </div>
-            <div className="px-3 py-2">
+  if (shape === "cirkel") {
+    return (
+      <div className="relative">
+        <FourSideHandles />
+        <div
+          className="flex h-24 w-24 items-center justify-center rounded-full
+                     border border-raw-edge text-center shadow-sm"
+          style={{ backgroundColor: color }}
+        >
+          <div className="px-2">
+            <NameField
+              id={id}
+              name={s.name}
+              onRename={data.onRename}
+              align="center"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (shape === "kvadrat") {
+    return (
+      <div className="relative">
+        <FourSideHandles />
+        <div
+          className="flex h-24 w-24 items-center justify-center
+                     border border-raw-edge text-center shadow-sm"
+          style={{ backgroundColor: color }}
+        >
+          <div className="px-2">
+            <NameField
+              id={id}
+              name={s.name}
+              onRename={data.onRename}
+              align="center"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (shape === "rombe") {
+    return (
+      <div className="relative">
+        <FourSideHandles />
+        <div className="flex h-32 w-32 items-center justify-center">
+          <div
+            className="flex h-20 w-20 rotate-45 items-center justify-center
+                       border border-raw-edge shadow-sm"
+            style={{ backgroundColor: color }}
+          >
+            <div className="w-16 -rotate-45">
               <NameField
                 id={id}
                 name={s.name}
-                shape={shape}
                 onRename={data.onRename}
+                align="center"
               />
-              <p className="mt-1 text-[12px] text-ink-soft">
-                {s.temp_target_c != null ? `${s.temp_target_c}°C` : "–"}
-                {s.location_zone ? ` · ${s.location_zone}` : ""}
-              </p>
-              <p className="mt-0.5 text-[11px] text-ink-faint">
-                {s.product_open ? "Åbent produkt" : "Lukket produkt"}
-                {s.person_contact ? " · personkontakt" : ""}
-              </p>
             </div>
-          </>
-        ) : (
-          <NameField
-            id={id}
-            name={s.name}
-            shape={shape}
-            onRename={data.onRename}
-          />
-        )}
-      </ShapeBody>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // trekant_oprp / trekant_ccp – form øverst, navn som billedtekst nedenunder
+  return (
+    <div className="relative flex w-24 flex-col items-center">
+      <FourSideHandles />
+      <div
+        style={{
+          width: 0,
+          height: 0,
+          borderLeft: "42px solid transparent",
+          borderRight: "42px solid transparent",
+          borderBottom: `72px solid ${color}`,
+        }}
+      />
+      <div className="mt-1 w-full text-center">
+        <NameField
+          id={id}
+          name={s.name}
+          onRename={data.onRename}
+          align="center"
+          light={light}
+        />
+      </div>
     </div>
   );
 }
 
 const nodeTypes = { step: StepNode };
 
-/** Kant med et lille × ved midtpunktet – synligt, klikbart alternativ
- * til at markere pilen og trykke Backspace. */
+/** Kant med et lille × ved midtpunktet. */
 type EdgeData = { onDelete: (edgeId: string) => void };
 
 function DeletableEdge({
@@ -248,15 +322,10 @@ function DeletableEdge({
 
 const edgeTypes = { deletable: DeletableEdge };
 
-function PaletteItem({
-  shape,
-  label,
-  symbol,
-}: {
-  shape: NodeShape;
-  label: string;
-  symbol: string;
-}) {
+/** Palet-chip: farvet firkant + label. */
+function PaletteItem({ shape }: { shape: NodeShape }) {
+  const color = SHAPE_COLOR[shape];
+
   return (
     <div
       draggable
@@ -268,10 +337,11 @@ function PaletteItem({
                  bg-raw px-3 py-2 text-[13px] transition-colors
                  hover:border-brand active:cursor-grabbing"
     >
-      <span className="w-4 text-center text-[16px] leading-none text-brand">
-        {symbol}
-      </span>
-      {label}
+      <span
+        className="h-4 w-4 flex-none border border-ink/15"
+        style={{ backgroundColor: color }}
+      />
+      {NODE_SHAPE_LABELS[shape]}
     </div>
   );
 }
@@ -293,7 +363,7 @@ function FlowCanvasInner({ diagramId, steps, edges }: FlowCanvasProps) {
     async (stepId: string, newName: string) => {
       const trimmed = newName.trim();
       if (trimmed.length === 0) {
-        router.refresh(); // tomt navn: hent det gamle tilbage
+        router.refresh();
         return;
       }
       await renameStep(stepId, diagramId, trimmed);
@@ -345,9 +415,6 @@ function FlowCanvasInner({ diagramId, steps, edges }: FlowCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(builtNodes);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(builtEdges);
 
-  // useNodesState/useEdgesState sætter kun tilstanden ved FØRSTE render.
-  // Uden denne synkronisering "forsvinder" nye/rettede elementer visuelt
-  // efter et router.refresh(), selvom de er gemt korrekt i databasen.
   useEffect(() => {
     setNodes(builtNodes);
   }, [builtNodes, setNodes]);
@@ -414,11 +481,11 @@ function FlowCanvasInner({ diagramId, steps, edges }: FlowCanvasProps) {
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row">
-      <div className="flex flex-row gap-2 sm:w-44 sm:flex-none sm:flex-col">
-        <p className="label hidden sm:block">Træk ud på diagrammet</p>
-        <PaletteItem shape="rektangel" label="Procestrin" symbol="▭" />
-        <PaletteItem shape="rombe" label="Beslutning" symbol="◇" />
-        <PaletteItem shape="cirkel" label="Start/slut" symbol="○" />
+      <div className="flex flex-row flex-wrap gap-2 sm:w-40 sm:flex-none sm:flex-col">
+        <p className="label hidden w-full sm:block">Træk ud</p>
+        {NODE_SHAPES.map((shape) => (
+          <PaletteItem key={shape} shape={shape} />
+        ))}
       </div>
 
       <div
