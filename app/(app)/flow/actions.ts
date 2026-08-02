@@ -35,6 +35,38 @@ export async function createDiagram(formData: FormData) {
 }
 
 /**
+ * Gem diagrammets styringsdatoer (dokumentstyring): oprettelse,
+ * verificering, fornyelse og ny version. Tomme felter gemmes som null.
+ */
+export async function saveDiagramMeta(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const diagramId = String(formData.get("diagram_id") ?? "");
+  if (!diagramId) redirect("/flow");
+
+  const dato = (key: string): string | null => {
+    const v = String(formData.get(key) ?? "").trim();
+    return v === "" ? null : v; // input type="date" giver YYYY-MM-DD
+  };
+
+  const supabase = createClient();
+  await supabase
+    .from("flow_diagrams")
+    .update({
+      oprettet_dato: dato("oprettet_dato"),
+      verificeret_dato: dato("verificeret_dato"),
+      fornyelse_dato: dato("fornyelse_dato"),
+      ny_version_dato: dato("ny_version_dato"),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  redirect(`/flow/${diagramId}`);
+}
+
+/**
  * Slet et diagram (og via cascade: alle trin, kanter og attributter).
  */
 export async function deleteDiagram(formData: FormData) {
