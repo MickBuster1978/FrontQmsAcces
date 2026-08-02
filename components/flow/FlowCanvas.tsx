@@ -1,7 +1,7 @@
 // components/flow/FlowCanvas.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ReactFlow, {
   BaseEdge,
@@ -35,24 +35,26 @@ import {
   createEdge,
   createStepQuick,
   deleteEdge,
+  linkHazard,
   renameStep,
   saveStepPosition,
 } from "@/app/(app)/flow/actions";
 
-/**
- * Farve pr. form. Rombens farve stod ikke specificeret – den bruger
- * derfor systemets neutrale standardfarve i stedet for at gætte.
- */
-const SHAPE_COLOR: Record<NodeShape, string> = {
-  cirkel: "#DCEEE3", // lysgrøn
-  rektangel: "#DCE6F0", // lysblå
-  kvadrat: "#FFFFFF", // hvid
-  rombe: "#F3EEE3", // neutral (uspecificeret)
-  trekant_oprp: "#F4E2CE", // lysorange
-  trekant_ccp: "#A8321C", // rød
+export type ConfirmedHazardOption = {
+  id: string;
+  label: string;
+  stepNo: number;
 };
 
-/** Trekant-noden CCP har lys tekst (rød baggrund), resten mørk tekst */
+const SHAPE_COLOR: Record<NodeShape, string> = {
+  cirkel: "#DCEEE3",
+  rektangel: "#DCE6F0",
+  kvadrat: "#FFFFFF",
+  rombe: "#F3EEE3",
+  trekant_oprp: "#F4E2CE",
+  trekant_ccp: "#A8321C",
+};
+
 const SHAPE_TEXT_LIGHT: Record<NodeShape, boolean> = {
   cirkel: false,
   rektangel: false,
@@ -65,6 +67,8 @@ const SHAPE_TEXT_LIGHT: Record<NodeShape, boolean> = {
 type StepNodeData = {
   step: ProcessStep;
   onRename: (stepId: string, newName: string) => void;
+  /** Kun for trekant_ccp/trekant_oprp – label på den koblede, bekræftede fare */
+  linkedLabel: string | null;
 };
 
 /** Fire forbindelsespunkter – top/højre/bund/venstre – hver med
@@ -103,37 +107,50 @@ function FourSideHandles() {
   );
 }
 
-/** Inputfelt til navnet. key={name} nulstiller feltet korrekt når
- * navnet ændres udefra (fx efter et refresh). */
-function NameField({
+/**
+ * Flerlinjet, selvvoksende tekstfelt. Enter laver linjeskift (native
+ * textarea-adfærd, ingen onKeyDown-håndtering nødvendig) – gemmes ved
+ * blur. key={name} nulstiller feltet korrekt når navnet ændres udefra.
+ */
+function AutoTextarea({
   id,
   name,
   onRename,
   align = "left",
-  light = false,
 }: {
   id: string;
   name: string;
   onRename: (stepId: string, newName: string) => void;
   align?: "left" | "center";
-  light?: boolean;
 }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  const resize = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    resize();
+  }, [resize]);
+
   const cls = [
-    "nodrag w-full border-none bg-transparent p-0 outline-none",
-    "text-[12px] font-semibold leading-snug",
+    "nodrag w-full resize-none overflow-hidden border-none bg-transparent p-0",
+    "text-[12px] font-semibold leading-snug outline-none",
     align === "center" ? "text-center" : "",
-    light ? "text-raw placeholder:text-raw/70" : "text-ink",
-    "focus:bg-raw focus:px-1 focus:py-0.5 focus:text-ink",
+    "focus:bg-raw focus:px-1 focus:py-0.5",
   ].join(" ");
 
   return (
-    <input
+    <textarea
       key={name}
+      ref={ref}
       defaultValue={name}
+      rows={1}
+      onInput={resize}
       onBlur={(e) => onRename(id, e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-      }}
       className={cls}
     />
   );
@@ -161,7 +178,7 @@ function StepNode({ id, data }: NodeProps<StepNodeData>) {
             </p>
           </div>
           <div className="px-3 py-2">
-            <NameField id={id} name={s.name} onRename={data.onRename} />
+            <AutoTextarea id={id} name={s.name} onRename={data.onRename} />
             <p className="mt-1 text-[12px] text-ink-soft">
               {s.temp_target_c != null ? `${s.temp_target_c}°C` : "–"}
               {s.location_zone ? ` · ${s.location_zone}` : ""}
@@ -176,45 +193,22 @@ function StepNode({ id, data }: NodeProps<StepNodeData>) {
     );
   }
 
-  if (shape === "cirkel") {
+  if (shape === "cirkel" || shape === "kvadrat") {
     return (
       <div className="relative">
         <FourSideHandles />
         <div
-          className="flex h-24 w-24 items-center justify-center rounded-full
-                     border border-raw-edge text-center shadow-sm"
+          className={`flex min-h-24 w-24 items-center justify-center border border-raw-edge px-2 py-2 text-center shadow-sm ${
+            shape === "cirkel" ? "rounded-full" : ""
+          }`}
           style={{ backgroundColor: color }}
         >
-          <div className="px-2">
-            <NameField
-              id={id}
-              name={s.name}
-              onRename={data.onRename}
-              align="center"
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (shape === "kvadrat") {
-    return (
-      <div className="relative">
-        <FourSideHandles />
-        <div
-          className="flex h-24 w-24 items-center justify-center
-                     border border-raw-edge text-center shadow-sm"
-          style={{ backgroundColor: color }}
-        >
-          <div className="px-2">
-            <NameField
-              id={id}
-              name={s.name}
-              onRename={data.onRename}
-              align="center"
-            />
-          </div>
+          <AutoTextarea
+            id={id}
+            name={s.name}
+            onRename={data.onRename}
+            align="center"
+          />
         </div>
       </div>
     );
@@ -231,7 +225,7 @@ function StepNode({ id, data }: NodeProps<StepNodeData>) {
             style={{ backgroundColor: color }}
           >
             <div className="w-16 -rotate-45">
-              <NameField
+              <AutoTextarea
                 id={id}
                 name={s.name}
                 onRename={data.onRename}
@@ -244,9 +238,10 @@ function StepNode({ id, data }: NodeProps<StepNodeData>) {
     );
   }
 
-  // trekant_oprp / trekant_ccp – form øverst, navn som billedtekst nedenunder
+  // trekant_oprp / trekant_ccp – ikke fritekst. Viser den koblede,
+  // bekræftede fare fra risikomodulet, valgt via sidebaren.
   return (
-    <div className="relative flex w-24 flex-col items-center">
+    <div className="relative flex w-28 flex-col items-center">
       <FourSideHandles />
       <div
         style={{
@@ -257,22 +252,19 @@ function StepNode({ id, data }: NodeProps<StepNodeData>) {
           borderBottom: `72px solid ${color}`,
         }}
       />
-      <div className="mt-1 w-full text-center">
-        <NameField
-          id={id}
-          name={s.name}
-          onRename={data.onRename}
-          align="center"
-          light={light}
-        />
-      </div>
+      <p
+        className={`mt-1 w-full text-center text-[11px] font-semibold leading-snug ${
+          light ? "text-ink" : "text-ink"
+        }`}
+      >
+        {data.linkedLabel ?? "Vælg i sidebar →"}
+      </p>
     </div>
   );
 }
 
 const nodeTypes = { step: StepNode };
 
-/** Kant med et lille × ved midtpunktet. */
 type EdgeData = { onDelete: (edgeId: string) => void };
 
 function DeletableEdge({
@@ -322,7 +314,6 @@ function DeletableEdge({
 
 const edgeTypes = { deletable: DeletableEdge };
 
-/** Palet-chip: farvet firkant + label. */
 function PaletteItem({ shape }: { shape: NodeShape }) {
   const color = SHAPE_COLOR[shape];
 
@@ -350,14 +341,23 @@ export type FlowCanvasProps = {
   diagramId: string;
   steps: ProcessStep[];
   edges: ProcessEdge[];
-  /** Vestigial indtil næste batch fjerner den fra page.tsx – ubrugt her. */
-  hazardFlags?: Record<string, { ccp: boolean; oprp: boolean }>;
+  linkedHazardByStep: Record<string, string | null>;
+  confirmedCcpHazards: ConfirmedHazardOption[];
+  confirmedOprpHazards: ConfirmedHazardOption[];
 };
 
-function FlowCanvasInner({ diagramId, steps, edges }: FlowCanvasProps) {
+function FlowCanvasInner({
+  diagramId,
+  steps,
+  edges,
+  linkedHazardByStep,
+  confirmedCcpHazards,
+  confirmedOprpHazards,
+}: FlowCanvasProps) {
   const router = useRouter();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { project } = useReactFlow();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const handleRename = useCallback(
     async (stepId: string, newName: string) => {
@@ -382,14 +382,34 @@ function FlowCanvasInner({ diagramId, steps, edges }: FlowCanvasProps) {
 
   const builtNodes: Node<StepNodeData>[] = useMemo(
     () =>
-      steps.map((s) => ({
-        id: s.id,
-        type: "step",
-        position: { x: Number(s.pos_x), y: Number(s.pos_y) },
-        data: { step: s, onRename: handleRename },
-        deletable: false,
-      })),
-    [steps, handleRename]
+      steps.map((s) => {
+        let linkedLabel: string | null = null;
+        const linkedId = linkedHazardByStep[s.id];
+        if (linkedId) {
+          const pool =
+            s.node_shape === "trekant_ccp"
+              ? confirmedCcpHazards
+              : s.node_shape === "trekant_oprp"
+                ? confirmedOprpHazards
+                : [];
+          const found = pool.find((h) => h.id === linkedId);
+          linkedLabel = found ? `Trin ${found.stepNo} · ${found.label}` : null;
+        }
+        return {
+          id: s.id,
+          type: "step",
+          position: { x: Number(s.pos_x), y: Number(s.pos_y) },
+          data: { step: s, onRename: handleRename, linkedLabel },
+          deletable: false,
+        };
+      }),
+    [
+      steps,
+      handleRename,
+      linkedHazardByStep,
+      confirmedCcpHazards,
+      confirmedOprpHazards,
+    ]
   );
 
   const builtEdges: Edge[] = useMemo(
@@ -479,13 +499,69 @@ function FlowCanvasInner({ diagramId, steps, edges }: FlowCanvasProps) {
     [diagramId, project, router]
   );
 
+  const selectedStep = steps.find((s) => s.id === selectedId) ?? null;
+  const showCcpPicker = selectedStep?.node_shape === "trekant_ccp";
+  const showOprpPicker = selectedStep?.node_shape === "trekant_oprp";
+  const pickerOptions = showCcpPicker
+    ? confirmedCcpHazards
+    : showOprpPicker
+      ? confirmedOprpHazards
+      : [];
+
   return (
     <div className="flex flex-col gap-4 sm:flex-row">
-      <div className="flex flex-row flex-wrap gap-2 sm:w-40 sm:flex-none sm:flex-col">
-        <p className="label hidden w-full sm:block">Træk ud</p>
-        {NODE_SHAPES.map((shape) => (
-          <PaletteItem key={shape} shape={shape} />
-        ))}
+      {/* Sidebar: palet, eller CCP/oPRP-vælger når en trekant er valgt */}
+      <div className="flex flex-row flex-wrap gap-2 sm:w-48 sm:flex-none sm:flex-col">
+        {showCcpPicker || showOprpPicker ? (
+          <div>
+            <p className="label">
+              Vælg {showCcpPicker ? "CCP" : "oPRP"}
+            </p>
+            <select
+              value={
+                selectedStep ? linkedHazardByStep[selectedStep.id] ?? "" : ""
+              }
+              onChange={async (e) => {
+                if (!selectedStep) return;
+                await linkHazard(
+                  selectedStep.id,
+                  diagramId,
+                  e.target.value || null
+                );
+                router.refresh();
+              }}
+              className="mt-2 w-full rounded-sm border border-raw-edge bg-raw
+                         px-2 py-1.5 text-[13px] outline-none focus:border-brand"
+            >
+              <option value="">– Ikke koblet –</option>
+              {pickerOptions.map((h) => (
+                <option key={h.id} value={h.id}>
+                  Trin {h.stepNo} · {h.label}
+                </option>
+              ))}
+            </select>
+            {pickerOptions.length === 0 ? (
+              <p className="mt-2 text-[12px] text-ink-faint">
+                Ingen bekræftede {showCcpPicker ? "CCP'er" : "oPRP'er"} endnu.
+                Opret dem først i risikomodulet.
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setSelectedId(null)}
+              className="mt-3 text-[12px] text-ink-faint underline"
+            >
+              ← Tilbage til paletten
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="label hidden w-full sm:block">Træk ud</p>
+            {NODE_SHAPES.map((shape) => (
+              <PaletteItem key={shape} shape={shape} />
+            ))}
+          </>
+        )}
       </div>
 
       <div
@@ -502,6 +578,8 @@ function FlowCanvasInner({ diagramId, steps, edges }: FlowCanvasProps) {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeDragStop={onNodeDragStop}
+          onNodeClick={(_, node) => setSelectedId(node.id)}
+          onPaneClick={() => setSelectedId(null)}
           onConnect={onConnect}
           onEdgesDelete={onEdgesDelete}
           deleteKeyCode={["Backspace", "Delete"]}
