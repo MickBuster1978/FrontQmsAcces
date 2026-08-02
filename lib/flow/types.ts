@@ -67,6 +67,11 @@ export type FlowDiagram = {
   name: string;
   status: DiagramStatus;
   version: number;
+  /** Styringsdatoer (dokumentstyring) – redigeres af brugeren */
+  oprettet_dato: string | null;
+  verificeret_dato: string | null;
+  fornyelse_dato: string | null;
+  ny_version_dato: string | null;
   created_at: string;
   updated_at: string;
 };
