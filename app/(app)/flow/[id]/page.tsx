@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import FlowCanvas, {
   type ConfirmedHazardOption,
 } from "@/components/flow/FlowCanvas";
-import { deleteDiagram } from "../actions";
+import { deleteDiagram, saveDiagramMeta } from "../actions";
 import type { FlowDiagram, ProcessEdge, ProcessStep } from "@/lib/flow/types";
 
 function formatDate(iso: string) {
@@ -15,6 +15,10 @@ function formatDate(iso: string) {
     year: "numeric",
   });
 }
+
+const dateInputCls =
+  "mt-1.5 w-full rounded-sm border border-raw-edge bg-raw px-3 py-2 " +
+  "text-[15px] outline-none transition-colors focus:border-brand";
 
 export default async function DiagramPage({
   params,
@@ -45,8 +49,7 @@ export default async function DiagramPage({
   const edgeList = (edges ?? []) as ProcessEdge[];
   const stepIds = stepList.map((s) => s.id);
 
-  // Separat, smal forespørgsel for linked_hazard_id – undgår at skulle
-  // udvide den delte ProcessStep-type for ét canvas-specifikt felt.
+  // linked_hazard_id pr. trin (separat, smal forespørgsel)
   const { data: linkRows } =
     stepIds.length > 0
       ? await supabase
@@ -60,8 +63,7 @@ export default async function DiagramPage({
     linkedHazardByStep[row.id] = row.linked_hazard_id;
   }
 
-  // Bekræftede CCP/oPRP-farer fra risikomodulet, med trin-nummer til
-  // konteksten i dropdownen.
+  // Bekræftede CCP/oPRP-farer fra risikomodulet
   type HazardJoinRow = {
     id: string;
     label: string;
@@ -161,6 +163,74 @@ export default async function DiagramPage({
           </Link>
           .
         </p>
+      </section>
+
+      {/* Gem diagram – styringsdatoer */}
+      <section className="mt-12">
+        <div className="rule-double pb-3">
+          <h2 className="label">Gem diagram</h2>
+          <p className="mt-1 text-[13px] text-ink-faint">
+            Dokumentstyringsdatoer for diagrammet – dem en auditor spørger
+            til.
+          </p>
+        </div>
+
+        <form action={saveDiagramMeta} className="mt-6">
+          <input type="hidden" name="diagram_id" value={d.id} />
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label htmlFor="oprettet_dato" className="label">
+                Oprettelsesdato
+              </label>
+              <input
+                id="oprettet_dato"
+                name="oprettet_dato"
+                type="date"
+                defaultValue={d.oprettet_dato ?? ""}
+                className={dateInputCls}
+              />
+            </div>
+            <div>
+              <label htmlFor="verificeret_dato" className="label">
+                Verificeringsdato
+              </label>
+              <input
+                id="verificeret_dato"
+                name="verificeret_dato"
+                type="date"
+                defaultValue={d.verificeret_dato ?? ""}
+                className={dateInputCls}
+              />
+            </div>
+            <div>
+              <label htmlFor="fornyelse_dato" className="label">
+                Dato for fornyelse
+              </label>
+              <input
+                id="fornyelse_dato"
+                name="fornyelse_dato"
+                type="date"
+                defaultValue={d.fornyelse_dato ?? ""}
+                className={dateInputCls}
+              />
+            </div>
+            <div>
+              <label htmlFor="ny_version_dato" className="label">
+                Dato for ny version
+              </label>
+              <input
+                id="ny_version_dato"
+                name="ny_version_dato"
+                type="date"
+                defaultValue={d.ny_version_dato ?? ""}
+                className={dateInputCls}
+              />
+            </div>
+          </div>
+          <button type="submit" className="btn mt-6">
+            Gem diagram
+          </button>
+        </form>
       </section>
 
       {/* Farezone */}
