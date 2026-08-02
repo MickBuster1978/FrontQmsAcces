@@ -101,6 +101,9 @@ export type ProcessEdge = {
   org_id: string;
   from_step: string;
   to_step: string;
+  /** Hvilken side forbindelsen sidder på: top/right/bottom/left */
+  from_handle: string | null;
+  to_handle: string | null;
   label: string | null;
 };
 
