@@ -4,15 +4,12 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import FlowCanvas, {
   type ConfirmedHazardOption,
-  type StepTypeDefinition,
 } from "@/components/flow/FlowCanvas";
 import { deleteDiagram, saveDiagramMeta } from "../actions";
 import type {
-  AttributeDefinition,
   FlowDiagram,
   ProcessEdge,
   ProcessStep,
-  StepAttribute,
 } from "@/lib/flow/types";
 
 function formatDate(iso: string) {
@@ -69,33 +66,6 @@ export default async function DiagramPage({
   for (const row of linkRows ?? []) {
     linkedHazardByStep[row.id] = row.linked_hazard_id;
   }
-
-  // Alle attribut-definitioner (lille datasæt, filtreres pr. type i panelet)
-  // + eksisterende værdier pr. trin, til at forudfylde redigeringspanelet.
-  const [{ data: attrDefRows }, { data: stepAttrRows }] = await Promise.all([
-    supabase.from("attribute_definitions").select("*"),
-    stepIds.length > 0
-      ? supabase.from("step_attributes").select("*").in("step_id", stepIds)
-      : Promise.resolve({ data: [] as StepAttribute[] }),
-  ]);
-
-  const attributeDefs = (attrDefRows ?? []) as AttributeDefinition[];
-
-  const stepAttributesByStep: Record<string, StepAttribute[]> = {};
-  for (const a of (stepAttrRows ?? []) as StepAttribute[]) {
-    const arr = stepAttributesByStep[a.step_id] ?? [];
-    arr.push(a);
-    stepAttributesByStep[a.step_id] = arr;
-  }
-
-  // Trin-typer er nu data: delte starttyper (org_id null) + jeres egne.
-  // RLS filtrerer allerede til præcis dette sæt, ingen ekstra .eq() nødvendig.
-  const { data: stepTypeRows } = await supabase
-    .from("step_type_definitions")
-    .select("*")
-    .order("sort_order");
-
-  const stepTypeDefs = (stepTypeRows ?? []) as StepTypeDefinition[];
 
   // Bekræftede CCP/oPRP-farer fra risikomodulet
   type HazardJoinRow = {
@@ -192,9 +162,6 @@ export default async function DiagramPage({
             linkedHazardByStep={linkedHazardByStep}
             confirmedCcpHazards={confirmedCcpHazards}
             confirmedOprpHazards={confirmedOprpHazards}
-            attributeDefs={attributeDefs}
-            stepAttributesByStep={stepAttributesByStep}
-            stepTypeDefs={stepTypeDefs}
           />
         </div>
 
