@@ -59,6 +59,7 @@ export async function uploadDokument(formData: FormData) {
     oprettet_dato: tekst(formData, "oprettet_dato"),
     gennemgaaet_dato: tekst(formData, "gennemgaaet_dato"),
     udloeber_dato: tekst(formData, "udloeber_dato"),
+    ccp_oprp_type: tekst(formData, "ccp_oprp_type"),
   });
 
   if (error) {
