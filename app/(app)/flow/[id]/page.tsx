@@ -26,10 +26,17 @@ const dateInputCls =
   "mt-1.5 w-full rounded-sm border border-raw-edge bg-raw px-3 py-2 " +
   "text-[15px] outline-none transition-colors focus:border-brand";
 
+const FEJL_TEKST: Record<string, string> = {
+  datoer: "Datoerne kunne ikke gemmes. Prøv igen, eller sig til hvis det gentager sig.",
+  kategori: "Vælg en kategori før du registrerer diagrammet.",
+};
+
 export default async function DiagramPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { fejl?: string };
 }) {
   const supabase = createClient();
 
@@ -259,6 +266,11 @@ export default async function DiagramPage({
               />
             </div>
           </div>
+          {searchParams.fejl === "datoer" ? (
+            <p className="mt-4 border border-state-bad/30 bg-state-bad/5 px-3 py-2 text-[14px] text-state-bad">
+              {FEJL_TEKST.datoer}
+            </p>
+          ) : null}
           <button type="submit" className="btn mt-6">
             Gem diagram
           </button>
