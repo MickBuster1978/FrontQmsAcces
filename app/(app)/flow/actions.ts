@@ -52,7 +52,7 @@ export async function saveDiagramMeta(formData: FormData) {
   };
 
   const supabase = createClient();
-  await supabase
+  const { error } = await supabase
     .from("flow_diagrams")
     .update({
       oprettet_dato: dato("oprettet_dato"),
@@ -62,6 +62,12 @@ export async function saveDiagramMeta(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", diagramId);
+
+  // Uden dette tjek fejlede en manglende kolonne stille - siden så bare
+  // ud som om intet var gemt, uden nogen fejlbesked at gå efter.
+  if (error) {
+    redirect(`/flow/${diagramId}?fejl=datoer`);
+  }
 
   revalidatePath(`/flow/${diagramId}`);
   redirect(`/flow/${diagramId}`);
