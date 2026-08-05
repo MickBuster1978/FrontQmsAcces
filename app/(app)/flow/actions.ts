@@ -1,163 +1,636 @@
-// lib/flow/types.ts
-// Typer der spejler supabase/migrations/002_flow_model.sql + 008/009.
+// app/(app)/flow/actions.ts
+"use server";
 
-export const STEP_TYPES = [
-  "modtagelse",
-  "koelelagring",
-  "frostlagring",
-  "optoening",
-  "opskaering",
-  "hakning",
-  "tilsaetning",
-  "vejning",
-  "pakning",
-  "maerkning",
-  "metaldetektion",
-  "frysning",
-  "forsendelse",
-  "transport",
-  "intern_flytning",
-] as const;
+import { randomUUID } from "crypto";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { getOrgContext } from "@/lib/org";
+import { STEP_TYPES, type NodeShape, type StepType } from "@/lib/flow/types";
 
-export type StepType = (typeof STEP_TYPES)[number];
+/**
+ * Opret nyt flowdiagram og hop direkte ind i det.
+ */
+export async function createDiagram(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
 
-export const STEP_TYPE_LABELS: Record<StepType, string> = {
-  modtagelse: "Modtagelse",
-  koelelagring: "Kølelagring",
-  frostlagring: "Frostlagring",
-  optoening: "Optøning",
-  opskaering: "Opskæring",
-  hakning: "Hakning",
-  tilsaetning: "Tilsætning",
-  vejning: "Vejning",
-  pakning: "Pakning",
-  maerkning: "Mærkning",
-  metaldetektion: "Metaldetektion",
-  frysning: "Frysning",
-  forsendelse: "Forsendelse",
-  transport: "Transport",
-  intern_flytning: "Intern flytning",
-};
+  const name = String(formData.get("name") ?? "").trim();
+  if (name.length < 2) {
+    redirect("/flow?fejl=navn");
+  }
 
-/** Visuel form på canvas – uafhængig af step_type */
-export const NODE_SHAPES = [
-  "cirkel",
-  "rektangel",
-  "kvadrat",
-  "rombe",
-  "trekant_oprp",
-  "trekant_ccp",
-] as const;
-export type NodeShape = (typeof NODE_SHAPES)[number];
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("flow_diagrams")
+    .insert({ org_id: ctx.orgId, name })
+    .select("id")
+    .single();
 
-export const NODE_SHAPE_LABELS: Record<NodeShape, string> = {
-  cirkel: "Start",
-  rektangel: "Procestrin",
-  kvadrat: "Input",
-  rombe: "Output",
-  trekant_oprp: "oPRP",
-  trekant_ccp: "CCP",
-};
+  if (error) {
+    redirect(error.code === "23505" ? "/flow?fejl=findes" : "/flow?fejl=ukendt");
+  }
 
-export type DiagramStatus = "kladde" | "aktiv" | "arkiveret";
-
-export type FlowDiagram = {
-  id: string;
-  org_id: string;
-  name: string;
-  status: DiagramStatus;
-  version: number; // major
-  version_minor: number; // 0-9, ruller til major+1 ved 10
-  /** Styringsdatoer (dokumentstyring) – redigeres af brugeren */
-  oprettet_dato: string | null;
-  verificeret_dato: string | null;
-  fornyelse_dato: string | null;
-  ny_version_dato: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type ProcessStep = {
-  id: string;
-  diagram_id: string;
-  org_id: string;
-  step_no: number;
-  name: string;
-  /** Null for ikke-rektangel-noder – de er ikke en fysisk proces-type */
-  step_type: StepType | null;
-  node_shape: NodeShape;
-  location_zone: string | null;
-  product_open: boolean;
-  person_contact: boolean;
-  temp_target_c: number | null;
-  temp_tolerance_c: number | null;
-  max_dwell_min: number | null;
-  equipment: string | null;
-  responsible_role: string | null;
-  input_desc: string | null;
-  output_desc: string | null;
-  pos_x: number;
-  pos_y: number;
-  created_at: string;
-};
-
-export type ProcessEdge = {
-  id: string;
-  diagram_id: string;
-  org_id: string;
-  from_step: string;
-  to_step: string;
-  /** Hvilken side forbindelsen sidder på: top/right/bottom/left */
-  from_handle: string | null;
-  to_handle: string | null;
-  label: string | null;
-};
-
-export type AttributeValueType = "text" | "number" | "boolean" | "select";
-
-export type AttributeDefinition = {
-  id: string;
-  label: string;
-  help_text: string | null;
-  value_type: AttributeValueType;
-  unit: string | null;
-  options: string[] | null;
-  applies_to: StepType[];
-  required: boolean;
-  standard_ref: string | null;
-  sort_order: number;
-};
-
-export type StepAttribute = {
-  step_id: string;
-  org_id: string;
-  attr_id: string;
-  value_text: string | null;
-  value_num: number | null;
-  value_bool: boolean | null;
-};
-
-/** Definitioner der gælder for en given trin-type, sorteret */
-export function definitionsForStepType(
-  defs: AttributeDefinition[],
-  stepType: StepType
-): AttributeDefinition[] {
-  return defs
-    .filter((d) => d.applies_to.includes(stepType))
-    .sort((a, b) => a.sort_order - b.sort_order);
+  revalidatePath("/flow");
+  redirect(`/flow/${data.id}`);
 }
 
-/** Læs værdien af en attribut uanset value_type */
-export function attributeValue(
-  attr: StepAttribute,
-  def: AttributeDefinition
-): string | number | boolean | null {
-  switch (def.value_type) {
-    case "number":
-      return attr.value_num;
-    case "boolean":
-      return attr.value_bool;
-    default:
-      return attr.value_text;
+/**
+ * Gem diagrammets styringsdatoer (dokumentstyring): oprettelse,
+ * verificering, fornyelse og ny version. Tomme felter gemmes som null.
+ */
+export async function saveDiagramMeta(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const diagramId = String(formData.get("diagram_id") ?? "");
+  if (!diagramId) redirect("/flow");
+
+  const dato = (key: string): string | null => {
+    const v = String(formData.get(key) ?? "").trim();
+    return v === "" ? null : v; // input type="date" giver YYYY-MM-DD
+  };
+
+  const supabase = createClient();
+
+  // Hent nuværende version + dato for at afgøre om "ny version"-datoen
+  // faktisk ÆNDREDE sig - kun det skal tælle op. Første gang feltet
+  // udfyldes (var null før) er bare at dokumentere hvad version 1.0
+  // er, ikke en ny version.
+  const { data: current } = await supabase
+    .from("flow_diagrams")
+    .select("version, version_minor, ny_version_dato")
+    .eq("id", diagramId)
+    .maybeSingle();
+
+  const nyVersionDatoNy = dato("ny_version_dato");
+  const erFaktiskNyVersion =
+    current?.ny_version_dato != null &&
+    nyVersionDatoNy !== null &&
+    nyVersionDatoNy !== current.ny_version_dato;
+
+  const nuMajor = current?.version ?? 1;
+  const nuMinor = current?.version_minor ?? 0;
+
+  // Minor tæller 0-9 op; ved 9 ruller den til næste major og minor=0
+  // (1.0 → 1.1 → ... → 1.9 → 2.0), i stedet for at tælle uendeligt.
+  let nyMajor = nuMajor;
+  let nyMinor = nuMinor;
+  if (erFaktiskNyVersion) {
+    if (nuMinor >= 9) {
+      nyMajor = nuMajor + 1;
+      nyMinor = 0;
+    } else {
+      nyMinor = nuMinor + 1;
+    }
   }
+
+  const { error } = await supabase
+    .from("flow_diagrams")
+    .update({
+      version: nyMajor,
+      version_minor: nyMinor,
+      oprettet_dato: dato("oprettet_dato"),
+      verificeret_dato: dato("verificeret_dato"),
+      fornyelse_dato: dato("fornyelse_dato"),
+      ny_version_dato: nyVersionDatoNy,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", diagramId);
+
+  // Uden dette tjek fejlede en manglende kolonne stille - siden så bare
+  // ud som om intet var gemt, uden nogen fejlbesked at gå efter.
+  if (error) {
+    redirect(`/flow/${diagramId}?fejl=datoer`);
+  }
+
+  revalidatePath(`/flow/${diagramId}`);
+  redirect(`/flow/${diagramId}`);
+}
+
+/**
+ * Slet et diagram (og via cascade: alle trin, kanter og attributter).
+ */
+export async function deleteDiagram(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) redirect("/flow");
+
+  const supabase = createClient();
+  await supabase.from("flow_diagrams").delete().eq("id", id);
+
+  revalidatePath("/flow");
+  redirect("/flow");
+}
+
+/**
+ * Opret et procestrin MED den fulde formular (bruges af den ældre
+ * /nyt-trin-guide). Beholdt uændret.
+ */
+export async function createStep(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const diagramId = String(formData.get("diagram_id") ?? "");
+  const stepType = String(formData.get("step_type") ?? "") as StepType;
+  const name = String(formData.get("name") ?? "").trim();
+
+  if (!diagramId) redirect("/flow");
+  if (!STEP_TYPES.includes(stepType)) {
+    redirect(`/flow/${diagramId}/nyt-trin?fejl=type`);
+  }
+  if (name.length < 2) {
+    redirect(`/flow/${diagramId}/nyt-trin?type=${stepType}&fejl=navn`);
+  }
+
+  const tal = (key: string): number | null => {
+    const v = String(formData.get(key) ?? "").trim().replace(",", ".");
+    if (v === "") return null;
+    const n = Number(v);
+    return Number.isNaN(n) ? null : n;
+  };
+  const tekst = (key: string): string | null => {
+    const v = String(formData.get(key) ?? "").trim();
+    return v === "" ? null : v;
+  };
+
+  const supabase = createClient();
+
+  const { data: last } = await supabase
+    .from("process_steps")
+    .select("id, step_no")
+    .eq("diagram_id", diagramId)
+    .order("step_no", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const stepNo = (last?.step_no ?? 0) + 1;
+
+  const { data: step, error: stepError } = await supabase
+    .from("process_steps")
+    .insert({
+      diagram_id: diagramId,
+      org_id: ctx.orgId,
+      step_no: stepNo,
+      name,
+      step_type: stepType,
+      node_shape: "rektangel",
+      location_zone: tekst("location_zone"),
+      product_open: formData.get("product_open") === "on",
+      person_contact: formData.get("person_contact") === "on",
+      temp_target_c: tal("temp_target_c"),
+      temp_tolerance_c: tal("temp_tolerance_c"),
+      max_dwell_min: tal("max_dwell_min"),
+      equipment: tekst("equipment"),
+      responsible_role: tekst("responsible_role"),
+      input_desc: tekst("input_desc"),
+      output_desc: tekst("output_desc"),
+      pos_x: 120,
+      pos_y: 80 + stepNo * 140,
+    })
+    .select("id")
+    .single();
+
+  if (stepError || !step) {
+    redirect(`/flow/${diagramId}/nyt-trin?type=${stepType}&fejl=ukendt`);
+  }
+
+  const { data: defs } = await supabase
+    .from("attribute_definitions")
+    .select("id, value_type")
+    .contains("applies_to", [stepType]);
+
+  const rows: {
+    step_id: string;
+    org_id: string;
+    attr_id: string;
+    value_text: string | null;
+    value_num: number | null;
+    value_bool: boolean | null;
+  }[] = [];
+
+  for (const def of defs ?? []) {
+    const raw = formData.get(`attr_${def.id}`);
+    if (raw === null) {
+      if (def.value_type === "boolean") {
+        rows.push({
+          step_id: step.id,
+          org_id: ctx.orgId,
+          attr_id: def.id,
+          value_text: null,
+          value_num: null,
+          value_bool: false,
+        });
+      }
+      continue;
+    }
+    const v = String(raw).trim();
+    if (def.value_type === "boolean") {
+      rows.push({
+        step_id: step.id,
+        org_id: ctx.orgId,
+        attr_id: def.id,
+        value_text: null,
+        value_num: null,
+        value_bool: v === "on",
+      });
+    } else if (def.value_type === "number") {
+      if (v === "") continue;
+      const n = Number(v.replace(",", "."));
+      if (Number.isNaN(n)) continue;
+      rows.push({
+        step_id: step.id,
+        org_id: ctx.orgId,
+        attr_id: def.id,
+        value_text: null,
+        value_num: n,
+        value_bool: null,
+      });
+    } else {
+      if (v === "") continue;
+      rows.push({
+        step_id: step.id,
+        org_id: ctx.orgId,
+        attr_id: def.id,
+        value_text: v,
+        value_num: null,
+        value_bool: null,
+      });
+    }
+  }
+
+  if (rows.length > 0) {
+    await supabase.from("step_attributes").insert(rows);
+  }
+
+  if (last?.id) {
+    await supabase.from("process_edges").insert({
+      diagram_id: diagramId,
+      org_id: ctx.orgId,
+      from_step: last.id,
+      to_step: step.id,
+    });
+  }
+
+  await supabase
+    .from("flow_diagrams")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  redirect(`/flow/${diagramId}`);
+}
+
+/**
+ * Slet et trin. Kanter til/fra trinnet ryger via cascade.
+ */
+export async function deleteStep(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const stepId = String(formData.get("step_id") ?? "");
+  const diagramId = String(formData.get("diagram_id") ?? "");
+  if (!stepId || !diagramId) redirect("/flow");
+
+  const supabase = createClient();
+  await supabase.from("process_steps").delete().eq("id", stepId);
+
+  await supabase
+    .from("flow_diagrams")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  redirect(`/flow/${diagramId}`);
+}
+
+/**
+ * Gem et trins fulde detaljer fra redigeringspanelet på canvas:
+ * kernefelter (type, zone, temp, udstyr, ansvarlig, input/output,
+ * åbent/kontakt) samt de type-specifikke attributter. Attributterne
+ * slettes og genindsættes ved hvert gem - det er enklest og korrekt,
+ * også når typen skiftes til noget med andre relevante felter.
+ * Sendes som almindeligt formular-submit (ikke klient-kald), så
+ * redirect() giver et rent, fuldt genindlæst canvas bagefter.
+ */
+export async function updateStepDetails(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const stepId = String(formData.get("step_id") ?? "");
+  const diagramId = String(formData.get("diagram_id") ?? "");
+  if (!stepId || !diagramId) redirect("/flow");
+
+  // Typen kan nu være en af de 15 delte starttyper ELLER en type
+  // organisationen selv har oprettet (fx "svejsning") - der valideres
+  // ikke længere mod en fast liste her. Den nye foreign key på
+  // process_steps.step_type er sikkerhedsnettet, ikke denne funktion.
+  const stepTypeRaw = String(formData.get("step_type") ?? "").trim();
+  const stepType = stepTypeRaw === "" ? null : stepTypeRaw;
+
+  const tal = (key: string): number | null => {
+    const v = String(formData.get(key) ?? "").trim().replace(",", ".");
+    if (v === "") return null;
+    const n = Number(v);
+    return Number.isNaN(n) ? null : n;
+  };
+  const tekst = (key: string): string | null => {
+    const v = String(formData.get(key) ?? "").trim();
+    return v === "" ? null : v;
+  };
+
+  const supabase = createClient();
+
+  await supabase
+    .from("process_steps")
+    .update({
+      step_type: stepType,
+      location_zone: tekst("location_zone"),
+      temp_target_c: tal("temp_target_c"),
+      temp_tolerance_c: tal("temp_tolerance_c"),
+      max_dwell_min: tal("max_dwell_min"),
+      product_open: formData.get("product_open") === "on",
+      person_contact: formData.get("person_contact") === "on",
+      equipment: tekst("equipment"),
+      responsible_role: tekst("responsible_role"),
+      input_desc: tekst("input_desc"),
+      output_desc: tekst("output_desc"),
+    })
+    .eq("id", stepId);
+
+  // Attributter matcher kun den VALGTE type - slet og genindsæt,
+  // så gamle værdier fra en tidligere type ikke bliver hængende.
+  await supabase.from("step_attributes").delete().eq("step_id", stepId);
+
+  if (stepType) {
+    const { data: defs } = await supabase
+      .from("attribute_definitions")
+      .select("id, value_type")
+      .contains("applies_to", [stepType]);
+
+    const rows: {
+      step_id: string;
+      org_id: string;
+      attr_id: string;
+      value_text: string | null;
+      value_num: number | null;
+      value_bool: boolean | null;
+    }[] = [];
+
+    for (const def of defs ?? []) {
+      const raw = formData.get(`attr_${def.id}`);
+      if (def.value_type === "boolean") {
+        rows.push({
+          step_id: stepId,
+          org_id: ctx.orgId,
+          attr_id: def.id,
+          value_text: null,
+          value_num: null,
+          value_bool: raw === "on",
+        });
+        continue;
+      }
+      if (raw === null) continue;
+      const v = String(raw).trim();
+      if (v === "") continue;
+      if (def.value_type === "number") {
+        const n = Number(v.replace(",", "."));
+        if (Number.isNaN(n)) continue;
+        rows.push({
+          step_id: stepId,
+          org_id: ctx.orgId,
+          attr_id: def.id,
+          value_text: null,
+          value_num: n,
+          value_bool: null,
+        });
+      } else {
+        rows.push({
+          step_id: stepId,
+          org_id: ctx.orgId,
+          attr_id: def.id,
+          value_text: v,
+          value_num: null,
+          value_bool: null,
+        });
+      }
+    }
+
+    if (rows.length > 0) {
+      await supabase.from("step_attributes").insert(rows);
+    }
+  }
+
+  revalidatePath(`/flow/${diagramId}`);
+  redirect(`/flow/${diagramId}`);
+}
+
+/**
+ * Opret en trin-type der er specifik for jeres virksomhed (fx
+ * "Svejsning" for en metalvirksomhed) - kaldes direkte fra
+ * redigeringspanelet, ikke via formular-submit. De 15 delte
+ * starttyper rører den ikke; dette laver kun jeres EGNE tilføjelser.
+ */
+export async function createStepType(label: string) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false as const };
+
+  const trimmed = label.trim();
+  if (trimmed.length < 2) return { ok: false as const };
+
+  const supabase = createClient();
+  const id = randomUUID();
+
+  const { error } = await supabase.from("step_type_definitions").insert({
+    id,
+    org_id: ctx.orgId,
+    label: trimmed,
+    sort_order: 500,
+  });
+
+  if (error) return { ok: false as const };
+
+  revalidatePath("/flow");
+  return { ok: true as const, id };
+}
+
+// ============================================================
+// CANVAS-ACTIONS – kaldes direkte fra klienten, ingen redirects
+// ============================================================
+
+/** Gem et trins position når det slippes efter træk */
+export async function saveStepPosition(
+  stepId: string,
+  posX: number,
+  posY: number
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("process_steps")
+    .update({ pos_x: posX, pos_y: posY })
+    .eq("id", stepId);
+
+  return { ok: !error };
+}
+
+/**
+ * Opret et BART trin ved at slippe en formfigur fra paletten på et
+ * tomt sted på canvas. Standardnavn afhænger af formen.
+ */
+export async function createStepQuick(
+  diagramId: string,
+  nodeShape: NodeShape,
+  posX: number,
+  posY: number
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false as const };
+
+  const supabase = createClient();
+
+  const { data: last } = await supabase
+    .from("process_steps")
+    .select("step_no")
+    .eq("diagram_id", diagramId)
+    .order("step_no", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const stepNo = (last?.step_no ?? 0) + 1;
+
+  const NAVNE: Record<NodeShape, string> = {
+    cirkel: "Start",
+    rektangel: "Nyt trin",
+    kvadrat: "Input",
+    rombe: "Output",
+    trekant_oprp: "oPRP",
+    trekant_ccp: "CCP",
+  };
+
+  const { data, error } = await supabase
+    .from("process_steps")
+    .insert({
+      diagram_id: diagramId,
+      org_id: ctx.orgId,
+      step_no: stepNo,
+      name: NAVNE[nodeShape],
+      step_type: null,
+      node_shape: nodeShape,
+      pos_x: posX,
+      pos_y: posY,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) return { ok: false as const };
+
+  await supabase
+    .from("flow_diagrams")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  return { ok: true as const, stepId: data.id };
+}
+
+/** Omdøb et trin (kaldes ved blur på navnefeltet i boksen) */
+export async function renameStep(
+  stepId: string,
+  diagramId: string,
+  newName: string
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+
+  const trimmed = newName.trim();
+  if (trimmed.length === 0) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("process_steps")
+    .update({ name: trimmed })
+    .eq("id", stepId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  return { ok: !error };
+}
+
+/**
+ * Kobl (eller frakobl) en CCP/oPRP-trekant til en bekræftet fare fra
+ * risikomodulet. hazardId = null fjerner koblingen.
+ */
+export async function linkHazard(
+  stepId: string,
+  diagramId: string,
+  hazardId: string | null
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("process_steps")
+    .update({ linked_hazard_id: hazardId })
+    .eq("id", stepId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  return { ok: !error };
+}
+
+/** Opret en kant ved at forbinde to trin på canvas.
+ * fromHandle/toHandle = hvilken side (top/right/bottom/left) hver ende
+ * sidder på, så forbindelsen bliver siddende dér ved genindlæsning. */
+export async function createEdge(
+  diagramId: string,
+  fromStep: string,
+  toStep: string,
+  fromHandle: string | null,
+  toHandle: string | null
+) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+  if (fromStep === toStep) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase.from("process_edges").insert({
+    diagram_id: diagramId,
+    org_id: ctx.orgId,
+    from_step: fromStep,
+    to_step: toStep,
+    from_handle: fromHandle,
+    to_handle: toHandle,
+  });
+
+  await supabase
+    .from("flow_diagrams")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  return { ok: !error || error.code === "23505" };
+}
+
+/** Slet en kant (× på selve pilen, eller markér + Backspace) */
+export async function deleteEdge(diagramId: string, edgeId: string) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) return { ok: false };
+
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("process_edges")
+    .delete()
+    .eq("id", edgeId);
+
+  await supabase
+    .from("flow_diagrams")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", diagramId);
+
+  revalidatePath(`/flow/${diagramId}`);
+  return { ok: !error };
 }
