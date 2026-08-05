@@ -22,7 +22,7 @@ const FEJL_TEKST: Record<string, string> = {
   navn: "Giv faren en beskrivelse (mindst 2 tegn).",
 };
 
-const KATEGORIER: FareKategori[] = ["biologisk", "kemisk", "fysisk"];
+const KATEGORIER: FareKategori[] = ["biologisk", "kemisk", "fysisk", "allergener"];
 
 const inputCls =
   "mt-1.5 w-full rounded-sm border border-raw-edge bg-raw px-3 py-2 " +
@@ -218,28 +218,28 @@ export default async function TrinRisikoPage({
                           <input type="hidden" name="step_id" value={s.id} />
 
                           <div>
-                            <label className="label">
-                              Sandsynlighed (1-3)
-                            </label>
-                            <input
+                            <label className="label">Sandsynlighed</label>
+                            <select
                               name="sandsynlighed"
-                              type="number"
-                              min={1}
-                              max={3}
                               defaultValue={h.sandsynlighed}
                               className={inputCls}
-                            />
+                            >
+                              <option value={1}>1 – Lav</option>
+                              <option value={2}>2 – Medium</option>
+                              <option value={3}>3 – Høj</option>
+                            </select>
                           </div>
                           <div>
-                            <label className="label">Konsekvens (1-3)</label>
-                            <input
+                            <label className="label">Alvorlighed</label>
+                            <select
                               name="konsekvens"
-                              type="number"
-                              min={1}
-                              max={3}
                               defaultValue={h.konsekvens}
                               className={inputCls}
-                            />
+                            >
+                              <option value={1}>1 – Lav</option>
+                              <option value={2}>2 – Medium</option>
+                              <option value={3}>3 – Høj</option>
+                            </select>
                           </div>
 
                           <div className="sm:col-span-2">
@@ -253,7 +253,7 @@ export default async function TrinRisikoPage({
                                   defaultChecked={klassifikationNu === "ingen"}
                                   className="h-4 w-4"
                                 />
-                                Ingen af delene
+                                Ikke signifikant
                               </label>
                               <label className="flex items-center gap-2 text-[14px]">
                                 <input
@@ -280,12 +280,13 @@ export default async function TrinRisikoPage({
 
                           <div className="sm:col-span-2">
                             <label className="label">
-                              Begrundelse (fx for CCP/oPRP-klassifikation)
+                              Kontrolforanstaltning
                             </label>
                             <textarea
-                              name="begrundelse"
+                              name="kontrolforanstaltning"
                               rows={2}
-                              defaultValue={h.begrundelse ?? ""}
+                              placeholder="Fx temperaturlogning hver 4. time, metaldetektor ved pakkelinje"
+                              defaultValue={h.kontrolforanstaltning ?? ""}
                               className={inputCls}
                             />
                           </div>
@@ -369,6 +370,7 @@ export default async function TrinRisikoPage({
               <option value="biologisk">Biologisk</option>
               <option value="kemisk">Kemisk</option>
               <option value="fysisk">Fysisk</option>
+              <option value="allergener">Allergener</option>
             </select>
           </div>
           <div className="flex-1">
@@ -394,7 +396,7 @@ export default async function TrinRisikoPage({
               defaultValue="ingen"
               className={inputCls}
             >
-              <option value="ingen">Ingen af delene</option>
+              <option value="ingen">Ikke signifikant</option>
               <option value="ccp">CCP</option>
               <option value="oprp">oPRP</option>
             </select>
