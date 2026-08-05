@@ -66,7 +66,8 @@ export type FlowDiagram = {
   org_id: string;
   name: string;
   status: DiagramStatus;
-  version: number;
+  version: number; // major
+  version_minor: number; // 0-9, ruller til major+1 ved 10
   /** Styringsdatoer (dokumentstyring) – redigeres af brugeren */
   oprettet_dato: string | null;
   verificeret_dato: string | null;
