@@ -52,13 +52,35 @@ export async function saveDiagramMeta(formData: FormData) {
   };
 
   const supabase = createClient();
+
+  // Hent nuværende version + dato for at afgøre om "ny version"-datoen
+  // faktisk ÆNDREDE sig - kun det skal tælle op. Første gang feltet
+  // udfyldes (var null før) er bare at dokumentere hvad version 1 er,
+  // ikke en ny version.
+  const { data: current } = await supabase
+    .from("flow_diagrams")
+    .select("version, ny_version_dato")
+    .eq("id", diagramId)
+    .maybeSingle();
+
+  const nyVersionDatoNy = dato("ny_version_dato");
+  const erFaktiskNyVersion =
+    current?.ny_version_dato != null &&
+    nyVersionDatoNy !== null &&
+    nyVersionDatoNy !== current.ny_version_dato;
+
+  const nyVersion = erFaktiskNyVersion
+    ? (current?.version ?? 1) + 1
+    : (current?.version ?? 1);
+
   const { error } = await supabase
     .from("flow_diagrams")
     .update({
+      version: nyVersion,
       oprettet_dato: dato("oprettet_dato"),
       verificeret_dato: dato("verificeret_dato"),
       fornyelse_dato: dato("fornyelse_dato"),
-      ny_version_dato: dato("ny_version_dato"),
+      ny_version_dato: nyVersionDatoNy,
       updated_at: new Date().toISOString(),
     })
     .eq("id", diagramId);
