@@ -37,7 +37,7 @@ export async function updateHazard(formData: FormData) {
     String(formData.get("kontrolforanstaltning") ?? "").trim() || null;
 
   const supabase = createClient();
-  await supabase
+  const { error } = await supabase
     .from("step_hazards")
     .update({
       sandsynlighed,
@@ -49,6 +49,12 @@ export async function updateHazard(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", hazardId);
+
+  // Uden dette tjek fejlede en manglende/omdøbt kolonne stille - siden
+  // så bare ud som om intet var gemt, uden nogen fejl at gå efter.
+  if (error) {
+    redirect(`/risiko/${diagramId}/${stepId}?fejl=gem`);
+  }
 
   revalidatePath(`/risiko/${diagramId}/${stepId}`);
   revalidatePath(`/risiko/${diagramId}`);
@@ -98,7 +104,7 @@ export async function tilfoejHazard(formData: FormData) {
   }
 
   const supabase = createClient();
-  await supabase.from("step_hazards").insert({
+  const { error } = await supabase.from("step_hazards").insert({
     step_id: stepId,
     org_id: ctx.orgId,
     hazard_def_id: null,
@@ -110,6 +116,10 @@ export async function tilfoejHazard(formData: FormData) {
     er_oprp: klassifikation === "oprp",
     status: "forslag",
   });
+
+  if (error) {
+    redirect(`/risiko/${diagramId}/${stepId}?fejl=gem`);
+  }
 
   revalidatePath(`/risiko/${diagramId}/${stepId}`);
   revalidatePath(`/risiko/${diagramId}`);
