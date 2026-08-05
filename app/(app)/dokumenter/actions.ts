@@ -131,7 +131,7 @@ export async function registrerDiagramSomDokument(formData: FormData) {
     org_id: ctx.orgId,
     kategori_id: kategoriId,
     titel: diagram.name,
-    version: String(diagram.version ?? 1),
+    version: `${diagram.version ?? 1}.${diagram.version_minor ?? 0}`,
     status: "gaeldende" as const,
     diagram_id: diagramId,
     oprettet_dato: diagram.oprettet_dato,
