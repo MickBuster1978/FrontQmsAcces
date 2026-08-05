@@ -1,12 +1,13 @@
 // lib/risiko/types.ts
-// Typer der spejler supabase/migrations/007_risikoanalyse.sql 1:1.
+// Typer der spejler supabase/migrations/007_risikoanalyse.sql + 018.
 
-export type FareKategori = "biologisk" | "kemisk" | "fysisk";
+export type FareKategori = "biologisk" | "kemisk" | "fysisk" | "allergener";
 
 export const FARE_KATEGORI_LABELS: Record<FareKategori, string> = {
   biologisk: "Biologisk",
   kemisk: "Kemisk",
   fysisk: "Fysisk",
+  allergener: "Allergener",
 };
 
 export type HazardDefinition = {
@@ -41,10 +42,11 @@ export type StepHazard = {
   description: string | null;
   sandsynlighed: number;
   konsekvens: number;
-  risikoscore: number; // generated: sandsynlighed * konsekvens
+  risikoscore: number; // generated: sandsynlighed × konsekvens
   er_ccp: boolean;
   er_oprp: boolean;
-  begrundelse: string | null;
+  /** Den konkrete kontrol der styrer faren (fx "Metaldetektor ved pakkelinje") */
+  kontrolforanstaltning: string | null;
   status: HazardStatus;
   created_at: string;
   updated_at: string;
