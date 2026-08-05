@@ -20,6 +20,7 @@ import {
 
 const FEJL_TEKST: Record<string, string> = {
   navn: "Giv faren en beskrivelse (mindst 2 tegn).",
+  gem: "Kunne ikke gemme. Tjek at migration 018 er kørt (kolonnen kontrolforanstaltning og allergen-kategorien skal findes) - se sundhedstjekket eller migrationens egen verifikation.",
 };
 
 const KATEGORIER: FareKategori[] = ["biologisk", "kemisk", "fysisk", "allergener"];
@@ -159,6 +160,12 @@ export default async function TrinRisikoPage({
           {s.location_zone ? ` · ${s.location_zone}` : ""}
         </p>
       </header>
+
+      {fejl === FEJL_TEKST.gem ? (
+        <p className="mt-6 border border-state-bad/30 bg-state-bad/5 px-3 py-2 text-[14px] text-state-bad">
+          {fejl}
+        </p>
+      ) : null}
 
       {hazardList.length === 0 ? (
         <p className="mt-8 text-[15px] text-ink-faint">
