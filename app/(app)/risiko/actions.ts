@@ -33,8 +33,8 @@ export async function updateHazard(formData: FormData) {
   const klassifikation = String(formData.get("klassifikation") ?? "ingen");
   const erCcp = klassifikation === "ccp";
   const erOprp = klassifikation === "oprp";
-  const begrundelse =
-    String(formData.get("begrundelse") ?? "").trim() || null;
+  const kontrolforanstaltning =
+    String(formData.get("kontrolforanstaltning") ?? "").trim() || null;
 
   const supabase = createClient();
   await supabase
@@ -44,7 +44,7 @@ export async function updateHazard(formData: FormData) {
       konsekvens,
       er_ccp: erCcp,
       er_oprp: erOprp,
-      begrundelse,
+      kontrolforanstaltning,
       status: "bekraeftet",
       updated_at: new Date().toISOString(),
     })
