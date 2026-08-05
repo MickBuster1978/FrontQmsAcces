@@ -144,7 +144,7 @@ export default async function DiagramPage({
               <Link href="/flow" className="underline hover:text-brand">
                 Flowdiagram
               </Link>{" "}
-              · v{d.version}
+              · v{d.version}.{d.version_minor}
             </p>
             <h1 className="mt-1 text-4xl font-semibold tracking-tight">
               {d.name}
