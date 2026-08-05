@@ -30,7 +30,7 @@ export async function updateHazard(formData: FormData) {
     3,
     Math.max(1, Number(formData.get("konsekvens") ?? 1))
   );
-  const klassifikation = String(formData.get("klassifikation") ?? "ingen");
+  const klassifikation = String(formData.get("klassifikation") ?? "prp");
   const erCcp = klassifikation === "ccp";
   const erOprp = klassifikation === "oprp";
   const kontrolforanstaltning =
@@ -90,7 +90,7 @@ export async function tilfoejHazard(formData: FormData) {
   const stepId = String(formData.get("step_id") ?? "");
   const category = String(formData.get("category") ?? "biologisk");
   const label = String(formData.get("label") ?? "").trim();
-  const klassifikation = String(formData.get("klassifikation") ?? "ingen");
+  const klassifikation = String(formData.get("klassifikation") ?? "prp");
 
   if (!stepId) redirect("/risiko");
   if (label.length < 2) {
