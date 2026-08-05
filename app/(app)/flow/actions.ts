@@ -104,6 +104,20 @@ export async function saveDiagramMeta(formData: FormData) {
     redirect(`/flow/${diagramId}?fejl=datoer`);
   }
 
+  // Er diagrammet registreret som dokument i dokumentstyring, skal det
+  // dokument følge med automatisk - intet ekstra klik på "Opdatér
+  // registrering" bare for at få version/datoer opdateret. Rammer
+  // ingen rækker (og gør derfor ingenting) hvis intet er registreret.
+  await supabase
+    .from("dokumenter")
+    .update({
+      version: `${nyMajor}.${nyMinor}`,
+      oprettet_dato: dato("oprettet_dato"),
+      gennemgaaet_dato: dato("verificeret_dato"),
+      udloeber_dato: dato("fornyelse_dato"),
+    })
+    .eq("diagram_id", diagramId);
+
   revalidatePath(`/flow/${diagramId}`);
   redirect(`/flow/${diagramId}`);
 }
