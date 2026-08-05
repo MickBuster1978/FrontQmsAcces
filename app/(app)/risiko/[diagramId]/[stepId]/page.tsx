@@ -182,7 +182,7 @@ export default async function TrinRisikoPage({
                       ? "ccp"
                       : h.er_oprp
                         ? "oprp"
-                        : "ingen";
+                        : "prp";
                     return (
                       <div
                         key={h.id}
@@ -249,11 +249,11 @@ export default async function TrinRisikoPage({
                                 <input
                                   type="radio"
                                   name="klassifikation"
-                                  value="ingen"
-                                  defaultChecked={klassifikationNu === "ingen"}
+                                  value="prp"
+                                  defaultChecked={klassifikationNu === "prp"}
                                   className="h-4 w-4"
                                 />
-                                Ikke signifikant
+                                PRP
                               </label>
                               <label className="flex items-center gap-2 text-[14px]">
                                 <input
@@ -393,10 +393,10 @@ export default async function TrinRisikoPage({
             <select
               name="klassifikation"
               id="klassifikation_ny"
-              defaultValue="ingen"
+              defaultValue="prp"
               className={inputCls}
             >
-              <option value="ingen">Ikke signifikant</option>
+              <option value="prp">PRP</option>
               <option value="ccp">CCP</option>
               <option value="oprp">oPRP</option>
             </select>
