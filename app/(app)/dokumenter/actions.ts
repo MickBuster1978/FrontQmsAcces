@@ -118,6 +118,67 @@ export async function sletDokument(formData: FormData) {
 }
 
 /**
+ * Rediger et eksisterende dokument - alle felter fra "Nyt dokument"
+ * kan rettes, inklusiv at erstatte selve filen. dokument_nummer
+ * røres aldrig; det er tildelt én gang ved oprettelse.
+ */
+export async function redigerDokument(formData: FormData) {
+  const ctx = await getOrgContext();
+  if (!ctx || !ctx.orgId) redirect("/login");
+
+  const dokumentId = String(formData.get("dokument_id") ?? "");
+  const kategoriId = String(formData.get("kategori_id") ?? "");
+  const titel = String(formData.get("titel") ?? "").trim();
+
+  if (!dokumentId || !kategoriId) redirect("/dokumenter");
+  if (titel.length < 2) {
+    redirect(`/dokumenter/${kategoriId}?fejl=titel&rediger=${dokumentId}`);
+  }
+
+  const supabase = createClient();
+
+  const opdatering: Record<string, unknown> = {
+    titel,
+    version: tekst(formData, "version") ?? "1.0",
+    status: tekst(formData, "status") ?? "udkast",
+    ansvarlig: tekst(formData, "ansvarlig"),
+    beskrivelse: tekst(formData, "beskrivelse"),
+    oprettet_dato: tekst(formData, "oprettet_dato"),
+    gennemgaaet_dato: tekst(formData, "gennemgaaet_dato"),
+    udloeber_dato: tekst(formData, "udloeber_dato"),
+    ccp_oprp_type: tekst(formData, "ccp_oprp_type"),
+  };
+
+  // Ny fil er valgfri - kun hvis en reelt er valgt, erstattes fil_sti.
+  // Vælges ingen ny fil, beholdes den eksisterende uændret.
+  const file = formData.get("fil");
+  if (file instanceof File && file.size > 0) {
+    const path = `${ctx.orgId}/${dokumentId}/${file.name}`;
+    const { error: uploadError } = await supabase.storage
+      .from("dokumenter")
+      .upload(path, file, { upsert: true });
+
+    if (uploadError) {
+      redirect(`/dokumenter/${kategoriId}?fejl=upload&rediger=${dokumentId}`);
+    }
+    opdatering.fil_sti = path;
+  }
+
+  const { error } = await supabase
+    .from("dokumenter")
+    .update(opdatering)
+    .eq("id", dokumentId);
+
+  if (error) {
+    redirect(`/dokumenter/${kategoriId}?fejl=gem&rediger=${dokumentId}`);
+  }
+
+  revalidatePath(`/dokumenter/${kategoriId}`);
+  revalidatePath("/dokumenter");
+  redirect(`/dokumenter/${kategoriId}`);
+}
+
+/**
  * Registrer (eller opdatér) et flowdiagram som dokument. Titel,
  * version og styringsdatoer kopieres direkte fra diagrammet - de er
  * allerede sat via "Gem diagram" på selve flow-siden, så de skal
