@@ -55,10 +55,12 @@ export async function uploadDokument(formData: FormData) {
   let filSti: string | null = null;
   const file = formData.get("fil");
   if (file instanceof File && file.size > 0) {
-    const path = `${ctx.orgId}/${dokumentId}/${file.name}`;
+    // Tidsstempel i stien sikrer at INGEN upload nogensinde overskriver
+    // en tidligere fil - det er forudsætningen for at historikken holder.
+    const path = `${ctx.orgId}/${dokumentId}/${Date.now()}-${file.name}`;
     const { error: uploadError } = await supabase.storage
       .from("dokumenter")
-      .upload(path, file, { upsert: true });
+      .upload(path, file);
 
     if (uploadError) {
       redirect(`/dokumenter/${kategoriId}?fejl=upload`);
@@ -107,9 +109,21 @@ export async function sletDokument(formData: FormData) {
 
   const supabase = createClient();
 
-  if (filSti) {
-    await supabase.storage.from("dokumenter").remove([filSti]);
+  // Historiske versioners filer skal ryddes op samtidig, ellers bliver
+  // de hængende i Storage uden nogen reference til dem overhovedet.
+  const { data: versioner } = await supabase
+    .from("dokument_versioner")
+    .select("fil_sti")
+    .eq("dokument_id", dokumentId);
+
+  const alleFilStier = [filSti, ...(versioner ?? []).map((v) => v.fil_sti)].filter(
+    (s): s is string => Boolean(s)
+  );
+
+  if (alleFilStier.length > 0) {
+    await supabase.storage.from("dokumenter").remove(alleFilStier);
   }
+  // dokument_versioner-rækkerne følger med via on delete cascade.
   await supabase.from("dokumenter").delete().eq("id", dokumentId);
 
   revalidatePath(`/dokumenter/${kategoriId}`);
@@ -137,6 +151,32 @@ export async function redigerDokument(formData: FormData) {
 
   const supabase = createClient();
 
+  // Arkivér den NUVÆRENDE tilstand FØR den overskrives - det er selve
+  // pointen med historikken. Rammer intet (og skader intet) hvis
+  // dokumentet af en eller anden grund ikke findes.
+  const { data: nuvaerende } = await supabase
+    .from("dokumenter")
+    .select("*")
+    .eq("id", dokumentId)
+    .maybeSingle();
+
+  if (nuvaerende) {
+    await supabase.from("dokument_versioner").insert({
+      dokument_id: dokumentId,
+      org_id: ctx.orgId,
+      titel: nuvaerende.titel,
+      version: nuvaerende.version,
+      status: nuvaerende.status,
+      ansvarlig: nuvaerende.ansvarlig,
+      beskrivelse: nuvaerende.beskrivelse,
+      fil_sti: nuvaerende.fil_sti,
+      oprettet_dato: nuvaerende.oprettet_dato,
+      gennemgaaet_dato: nuvaerende.gennemgaaet_dato,
+      udloeber_dato: nuvaerende.udloeber_dato,
+      ccp_oprp_type: nuvaerende.ccp_oprp_type,
+    });
+  }
+
   const opdatering: Record<string, unknown> = {
     titel,
     version: tekst(formData, "version") ?? "1.0",
@@ -150,13 +190,15 @@ export async function redigerDokument(formData: FormData) {
   };
 
   // Ny fil er valgfri - kun hvis en reelt er valgt, erstattes fil_sti.
-  // Vælges ingen ny fil, beholdes den eksisterende uændret.
+  // Vælges ingen ny fil, beholdes den eksisterende uændret. Tidsstemplet
+  // i stien sikrer at den GAMLE fil (nu arkiveret ovenfor) aldrig
+  // overskrives.
   const file = formData.get("fil");
   if (file instanceof File && file.size > 0) {
-    const path = `${ctx.orgId}/${dokumentId}/${file.name}`;
+    const path = `${ctx.orgId}/${dokumentId}/${Date.now()}-${file.name}`;
     const { error: uploadError } = await supabase.storage
       .from("dokumenter")
-      .upload(path, file, { upsert: true });
+      .upload(path, file);
 
     if (uploadError) {
       redirect(`/dokumenter/${kategoriId}?fejl=upload&rediger=${dokumentId}`);
