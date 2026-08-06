@@ -80,6 +80,7 @@ export default async function DokumentKategoriPage({
           <Link href="/dokumenter" className="underline hover:text-brand">
             Dokumentstyring
           </Link>
+          {k.kapittel_nummer != null ? ` · Kapitel ${k.kapittel_nummer}` : ""}
         </p>
         <h1 className="mt-1 text-4xl font-semibold tracking-tight">
           {k.label}
@@ -102,6 +103,12 @@ export default async function DokumentKategoriPage({
             >
               <div>
                 <p className="flex items-center gap-2 text-[16px] font-semibold">
+                  {k.kapittel_nummer != null && doc.dokument_nummer != null ? (
+                    <span className="tabular text-ink-faint">
+                      {k.kapittel_nummer}.
+                      {String(doc.dokument_nummer).padStart(3, "0")}
+                    </span>
+                  ) : null}
                   {doc.titel}
                   {doc.ccp_oprp_type ? (
                     <span
