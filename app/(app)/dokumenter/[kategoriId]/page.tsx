@@ -15,6 +15,17 @@ type DokumentMedDiagram = Dokument & {
   ccp_oprp_type: "ccp" | "oprp" | null;
 };
 
+/** En arkiveret snapshot fra dokument_versioner */
+type DokumentVersion = {
+  id: string;
+  titel: string;
+  version: string;
+  status: string;
+  fil_sti: string | null;
+  gennemgaaet_dato: string | null;
+  arkiveret_at: string;
+};
+
 const FEJL_TEKST: Record<string, string> = {
   titel: "Giv dokumentet en titel (mindst 2 tegn).",
   upload: "Filen kunne ikke uploades. Prøv igen.",
@@ -191,7 +202,7 @@ export default async function DokumentKategoriPage({
   searchParams,
 }: {
   params: { kategoriId: string };
-  searchParams: { fejl?: string; rediger?: string };
+  searchParams: { fejl?: string; rediger?: string; historik?: string };
 }) {
   const supabase = createClient();
 
@@ -222,6 +233,26 @@ export default async function DokumentKategoriPage({
       return { ...doc, url: data?.signedUrl ?? null };
     })
   );
+
+  // Historik hentes kun for det ene dokument der evt. er slået op lige nu
+  let historikMedUrl: (DokumentVersion & { url: string | null })[] = [];
+  if (searchParams.historik) {
+    const { data: versioner } = await supabase
+      .from("dokument_versioner")
+      .select("*")
+      .eq("dokument_id", searchParams.historik)
+      .order("arkiveret_at", { ascending: false });
+
+    historikMedUrl = await Promise.all(
+      ((versioner ?? []) as DokumentVersion[]).map(async (v) => {
+        if (!v.fil_sti) return { ...v, url: null as string | null };
+        const { data } = await supabase.storage
+          .from("dokumenter")
+          .createSignedUrl(v.fil_sti, 3600);
+        return { ...v, url: data?.signedUrl ?? null };
+      })
+    );
+  }
 
   const fejl = searchParams.fejl ? FEJL_TEKST[searchParams.fejl] : null;
 
@@ -343,6 +374,18 @@ export default async function DokumentKategoriPage({
                       Rediger
                     </Link>
                   )}
+                  <Link
+                    href={
+                      searchParams.historik === doc.id
+                        ? `/dokumenter/${k.id}`
+                        : `/dokumenter/${k.id}?historik=${doc.id}`
+                    }
+                    className="text-[13px] text-ink-faint underline"
+                  >
+                    {searchParams.historik === doc.id
+                      ? "Skjul historik"
+                      : "Historik"}
+                  </Link>
                   <form action={sletDokument}>
                     <input type="hidden" name="dokument_id" value={doc.id} />
                     <input type="hidden" name="kategori_id" value={k.id} />
@@ -362,6 +405,67 @@ export default async function DokumentKategoriPage({
               </li>
             );
           })}
+
+          {searchParams.historik &&
+          dokumenterMedUrl.some((d) => d.id === searchParams.historik) ? (
+            <li className="bg-raw py-5">
+              <p className="label">
+                Tidligere versioner (
+                {historikMedUrl.length === 0 ? "ingen endnu" : historikMedUrl.length})
+              </p>
+              {historikMedUrl.length === 0 ? (
+                <p className="mt-2 text-[13px] text-ink-faint">
+                  Dette dokument er ikke redigeret endnu - der er ingen
+                  arkiverede versioner at vise.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-3">
+                  {historikMedUrl.map((v) => (
+                    <li
+                      key={v.id}
+                      className="flex flex-wrap items-center justify-between gap-3 border-l-2 border-raw-edge pl-3"
+                    >
+                      <div>
+                        <p className="text-[14px] font-semibold">
+                          {v.titel}{" "}
+                          <span className="font-normal text-ink-faint">
+                            v{v.version} ·{" "}
+                            {DOKUMENT_STATUS_LABELS[
+                              v.status as keyof typeof DOKUMENT_STATUS_LABELS
+                            ] ?? v.status}
+                          </span>
+                        </p>
+                        <p className="text-[12px] text-ink-faint">
+                          Arkiveret{" "}
+                          {new Date(v.arkiveret_at).toLocaleString("da-DK", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                      {v.url ? (
+                        <a
+                          href={v.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[13px] text-brand underline"
+                        >
+                          Download denne version
+                        </a>
+                      ) : (
+                        <span className="text-[13px] text-ink-faint">
+                          Ingen fil gemt for denne version
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          ) : null}
         </ul>
       )}
 
