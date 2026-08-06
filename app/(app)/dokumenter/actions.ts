@@ -13,6 +13,26 @@ function tekst(formData: FormData, key: string): string | null {
 }
 
 /**
+ * Næste løbenummer INDEN FOR et kapittel (kategori). Tildeles én gang
+ * ved oprettelse og må aldrig genberegnes for eksisterende dokumenter -
+ * ellers skifter et dokuments nummer bare fordi et andet slettes.
+ */
+async function naesteDokumentNummer(
+  supabase: ReturnType<typeof createClient>,
+  kategoriId: string
+): Promise<number> {
+  const { data } = await supabase
+    .from("dokumenter")
+    .select("dokument_nummer")
+    .eq("kategori_id", kategoriId)
+    .order("dokument_nummer", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return (data?.dokument_nummer ?? 0) + 1;
+}
+
+/**
  * Opret et dokument, med valgfri fil-upload til Storage.
  * Stien bliver {org_id}/{dokument_id}/{filnavn} - det er den struktur
  * storage-adgangsreglerne fra migration 014 tjekker imod.
@@ -46,6 +66,8 @@ export async function uploadDokument(formData: FormData) {
     filSti = path;
   }
 
+  const dokumentNummer = await naesteDokumentNummer(supabase, kategoriId);
+
   const { error } = await supabase.from("dokumenter").insert({
     id: dokumentId,
     org_id: ctx.orgId,
@@ -56,6 +78,7 @@ export async function uploadDokument(formData: FormData) {
     ansvarlig: tekst(formData, "ansvarlig"),
     beskrivelse: tekst(formData, "beskrivelse"),
     fil_sti: filSti,
+    dokument_nummer: dokumentNummer,
     oprettet_dato: tekst(formData, "oprettet_dato"),
     gennemgaaet_dato: tekst(formData, "gennemgaaet_dato"),
     udloeber_dato: tekst(formData, "udloeber_dato"),
@@ -140,9 +163,13 @@ export async function registrerDiagramSomDokument(formData: FormData) {
   };
 
   if (eksisterende) {
+    // Opdatering - dokument_nummer røres ikke, det er allerede tildelt
     await supabase.from("dokumenter").update(felter).eq("id", eksisterende.id);
   } else {
-    await supabase.from("dokumenter").insert(felter);
+    const dokumentNummer = await naesteDokumentNummer(supabase, kategoriId);
+    await supabase
+      .from("dokumenter")
+      .insert({ ...felter, dokument_nummer: dokumentNummer });
   }
 
   revalidatePath(`/flow/${diagramId}`);
