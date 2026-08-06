@@ -7,6 +7,8 @@ export type DocumentKategori = {
   label: string;
   beskrivelse: string | null;
   sort_order: number;
+  /** Hovedkapittel-nummer (1, 2, 3...) - null indtil sat */
+  kapittel_nummer: number | null;
 };
 
 export type DokumentStatus =
@@ -33,6 +35,8 @@ export type Dokument = {
   beskrivelse: string | null;
   /** Reference til Supabase Storage - ubrugt indtil upload er bygget */
   fil_sti: string | null;
+  /** Løbenummer INDEN FOR kategoriens kapittel - tildelt én gang, ændres aldrig */
+  dokument_nummer: number | null;
   oprettet_dato: string | null;
   gennemgaaet_dato: string | null;
   udloeber_dato: string | null;
