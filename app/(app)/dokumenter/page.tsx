@@ -54,7 +54,14 @@ export default async function DokumenterOversigtPage() {
               className="group border border-raw-edge bg-raw-deep p-5 transition-colors hover:border-brand"
             >
               <div className="h-1.5 w-10" style={{ backgroundColor: farve }} />
-              <p className="mt-4 text-[18px] font-semibold group-hover:text-brand">
+              {k.kapittel_nummer != null ? (
+                <p className="label mt-4">Kapitel {k.kapittel_nummer}</p>
+              ) : null}
+              <p
+                className={`text-[18px] font-semibold group-hover:text-brand ${
+                  k.kapittel_nummer != null ? "mt-1" : "mt-4"
+                }`}
+              >
                 {k.label}
               </p>
               {k.beskrivelse ? (
